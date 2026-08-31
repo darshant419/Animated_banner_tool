@@ -1,0 +1,13 @@
+[31mfailed to load config from D:\2026\Banner_tool\Animated_banner_tool\vite.config.ts[39m
+[31merror when starting dev server:
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at Object.spawn (node:child_process:796:9)
+    at ensureServiceIsRunning (D:\2026\Banner_tool\Animated_banner_tool\node_modules\esbuild\lib\main.js:1978:29)
+    at build (D:\2026\Banner_tool\Animated_banner_tool\node_modules\esbuild\lib\main.js:1876:26)
+    at bundleConfigFile (file:///D:/2026/Banner_tool/Animated_banner_tool/node_modules/vite/dist/node/chunks/config.js:35806:23)
+    at bundleAndLoadConfigFile (file:///D:/2026/Banner_tool/Animated_banner_tool/node_modules/vite/dist/node/chunks/config.js:35793:24)
+    at loadConfigFromFile (file:///D:/2026/Banner_tool/Animated_banner_tool/node_modules/vite/dist/node/chunks/config.js:35762:179)
+    at resolveConfig (file:///D:/2026/Banner_tool/Animated_banner_tool/node_modules/vite/dist/node/chunks/config.js:35411:28)
+    at _createServer (file:///D:/2026/Banner_tool/Animated_banner_tool/node_modules/vite/dist/node/chunks/config.js:25361:73)
+    at createServer$2 (file:///D:/2026/Banner_tool/Animated_banner_tool/node_modules/vite/dist/node/chunks/config.js:25358:9)[39m

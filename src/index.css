@@ -1,0 +1,170 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  background: #15151c;
+  color: #e5e7eb;
+}
+
+/* Hand cursor on hover for every interactive component */
+button:not(:disabled),
+[role='button']:not(:disabled),
+a,
+summary,
+select,
+input[type='checkbox'],
+input[type='radio'],
+label:has(input[type='checkbox']),
+label:has(input[type='radio']) {
+  cursor: pointer;
+}
+
+/* Form controls follow the dark theme: readable values + native dark widgets */
+input,
+select,
+textarea {
+  color-scheme: dark;
+}
+/* Zero-specificity fallback so Tailwind utilities can still override per field */
+:where(input[type='text'], input[type='number'], input[type='url'], input[type='email'], input[type='password'], input:not([type]), select, textarea) {
+  color: #f3f4f6;
+  background-color: #1a1a21;
+}
+
+/* Custom themed scrollbars (Firefox) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #343442 transparent;
+}
+
+/* Custom themed scrollbars (Chromium / WebKit) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #15151c;
+}
+::-webkit-scrollbar-thumb {
+  background: #2f2f3a;
+  border: 2px solid #15151c;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(239, 68, 68, 0.7);
+}
+::-webkit-scrollbar-thumb:active {
+  background: #ef4444;
+}
+::-webkit-scrollbar-corner {
+  background: #15151c;
+}
+
+/* Traditional ISI rich-content styling (matches reference MAT-US-ELA-01292) */
+.isi-rich-overlay {
+  pointer-events: none;
+}
+.isi-rich-overlay a {
+  pointer-events: auto;
+}
+.isi-rich-overlay .patient_link p {
+  font-size: 10px;
+  padding: 3px 10px 5px;
+  background-color: #E8FFF9;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: bold;
+  margin: 5px 0 10px 0;
+}
+
+.isi-rich-overlay .patient_link a {
+  color: #000000;
+  text-decoration: underline;
+  text-underline-offset: 1px;
+  font-weight: bold;
+}
+
+.isi-rich-overlay .isi h2 {
+  font-weight: 700;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  color: #006937;
+  margin: 0;
+}
+
+.isi-rich-overlay .isi p {
+  font-size: 12px;
+  font-family: Arial, Helvetica, sans-serif;
+  line-height: 14px;
+  margin: 0 0 6px 0;
+  color: #000;
+}
+
+.isi-rich-overlay .isi ul {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  padding-left: 11px;
+  color: #000;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
+
+.isi-rich-overlay .isi ul li {
+  list-style: none;
+  text-indent: -2px;
+  margin-left: -3px;
+  margin-bottom: 4px;
+}
+
+.isi-rich-overlay .isi ul li::before {
+  content: "\2022";
+  display: inline-block;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 13px;
+  left: -4px;
+  color: #61AE99;
+  vertical-align: top;
+}
+
+.isi-rich-overlay .isi a {
+  color: #000000;
+  text-decoration: underline;
+}
+
+.isi-rich-overlay .isi .isi-logo {
+  position: relative;
+  width: 187px;
+  height: auto;
+  bottom: 0;
+  left: 0;
+}
+
+.isi-rich-overlay .isi .mt-5 {
+  margin-top: 5px;
+}
+
+.isi-rich-overlay .isi .mb-0 {
+  margin-bottom: 0;
+}
+
+.isi-rich-overlay .isi .mb-2 {
+  margin-bottom: 2px !important;
+}
+
+.isi-rich-overlay .isi .mb-7 {
+  margin-bottom: 7px !important;
+}
+
+.isi-rich-overlay .isi .mb-10 {
+  margin-bottom: 10px !important;
+}
+
+.isi-rich-overlay .isi .mb-10-title {
+  margin-bottom: 4px !important;
+}
