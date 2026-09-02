@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { useDesignStore, type DesignElement } from '../../store/designStore';
-import { EASINGS } from '../../utils/keyframes';
+import { EASINGS, applyStaggeredDelays } from '../../utils/keyframes';
 import { getAnimationOptionGroups, getEntranceAnimationGroups, getExitAnimationGroups, isAnimistaLoop, animationLabel } from '../../utils/animations';
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
@@ -774,6 +774,59 @@ return (
                             <label htmlFor="animationLoop" className="text-xs text-gray-200">
                                 Loop Animation
                             </label>
+                        </div>
+
+                        <div className="border-t border-[#232330] pt-3">
+                            <label className="text-xs font-medium text-gray-400 uppercase mb-2 block">Sequence (Stagger)</label>
+                            <p className="text-[11px] text-gray-400 mb-2">
+                                Apply staggered delays to all layers so they animate one after another (bottom to top).
+                            </p>
+                            <div className="grid grid-cols-2 gap-2 mb-2">
+                                <div>
+                                    <label className="text-xs text-gray-400 mb-1 block">Gap (s)</label>
+                                    <input
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        value={0.2}
+                                        onChange={() => {}}
+                                        className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                        id="staggerGap"
+                                    />
+                                </div>
+                                <div className="flex items-end">
+                                    <button
+                                        onClick={() => {
+                                            const gap = parseFloat((document.getElementById('staggerGap') as HTMLInputElement)?.value || '0.2');
+                                            const updates = applyStaggeredDelays(elements, gap, true);
+                                            updates.forEach(u => updateElement(u.id!, { enterDelay: u.enterDelay }));
+                                        }}
+                                        className="w-full bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/50 rounded px-3 py-1.5 text-xs font-medium transition"
+                                    >
+                                        Sequence Layers
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    onClick={() => {
+                                        const gap = parseFloat((document.getElementById('staggerGap') as HTMLInputElement)?.value || '0.2');
+                                        const updates = applyStaggeredDelays(elements, gap, false);
+                                        updates.forEach(u => updateElement(u.id!, { animationDelay: u.animationDelay }));
+                                    }}
+                                    className="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 border border-[#2a2a35] rounded px-3 py-1.5 text-xs font-medium transition"
+                                >
+                                    Sequence (Main Anim)
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        elements.forEach(el => updateElement(el.id, { enterDelay: 0, animationDelay: 0 }));
+                                    }}
+                                    className="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 border border-[#2a2a35] rounded px-3 py-1.5 text-xs font-medium transition"
+                                >
+                                    Clear All Delays
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -282,3 +282,37 @@ export const suggestedDuration = (elements: DesignElement[]): number => {
     const end = Math.max(1, ...elements.map(elementEndTime));
     return Math.max(3, Math.ceil(end * 2) / 2);
 };
+
+/** Returns the duration of an element's entrance + main animation (excluding exit). */
+export const getElementAnimationDuration = (el: DesignElement): number => {
+    const enter = el.enterAnimation
+        ? presetToKeyframes(el, el.enterAnimation, el.enterDelay || 0)
+        : [];
+    const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
+
+    const main = el.anim && el.anim.keyframes.length > 0 ? el.anim.keyframes : presetToKeyframes(el);
+    const mainEnd = main.length > 0 ? Math.max(...main.map((f) => f.time)) : 0;
+
+    return enterEnd + mainEnd;
+};
+
+/** Applies staggered delays to elements based on their layer order (bottom to top). */
+export const applyStaggeredDelays = (
+    elements: DesignElement[],
+    gap: number = 0.2,
+    useEnterDelay: boolean = true
+): Partial<DesignElement>[] => {
+    const sorted = [...elements].sort((a, b) => elements.indexOf(a) - elements.indexOf(b));
+    let currentTime = 0;
+
+    return sorted.map((el) => {
+        const duration = getElementAnimationDuration(el);
+        const delay = currentTime;
+        currentTime += duration + gap;
+
+        if (useEnterDelay) {
+            return { id: el.id, enterDelay: delay };
+        }
+        return { id: el.id, animationDelay: delay };
+    });
+};

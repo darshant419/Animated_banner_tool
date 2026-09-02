@@ -1,10 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Stage, Layer, Rect, Circle, Line, Text, Transformer, Image as KonvaImage, Path,
+  Stage, Layer, Rect, Circle, Line, Text, Transformer, Image as KonvaImage, Path, Group,
 } from 'react-konva';
 import { useDesignStore, type Artboard, type DesignElement } from '../../store/designStore';
-import { LayoutGrid, Square } from 'lucide-react';
+import { LayoutGrid, Square, Maximize, Minimize, RotateCcw, FlipHorizontal, FlipVertical, AlignHorizontalCenters, AlignVerticalCenters, DistributeHorizontal, DistributeVertical, Grid, Ruler } from 'lucide-react';
 import Konva from 'konva';
 import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
@@ -202,14 +202,22 @@ interface BoardStageProps {
 const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage }) => {
   const {
     selectedId,
+    selectedIds,
     updateElement,
     selectElement,
+    selectElements,
+    addElement,
+    duplicateElement,
+    removeElement,
+    reorderElement,
     totalDuration,
     isPlaying,
     playheadTime,
     canvasBackground,
     canvasBackgroundImage,
     setActiveArtboard,
+    canvasWidth,
+    canvasHeight,
   } = useDesignStore();
 
   const trRef = useRef<Konva.Transformer>(null);
@@ -219,6 +227,16 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   const [guides, setGuides] = useState<{ x?: number, y?: number }[]>([]);
   const [editingText, setEditingText] = useState<{ id: string; value: string } | null>(null);
   const [editingISI, setEditingISI] = useState<{ id: string; header: string; html: string } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [showGrid, setShowGrid] = useState(false);
+  const [showRulers, setShowRulers] = useState(true);
+  const [snapToGrid, setSnapToGrid] = useState(false);
+  const [gridSize, setGridSize] = useState(20);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null);
+  const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [manualGuides, setManualGuides] = useState<{ x?: number; y?: number }[]>([]);
+  const [showSafeZone, setShowSafeZone] = useState(false);
 
   const elements = board.elements;
 
