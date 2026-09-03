@@ -4,7 +4,7 @@ import {
   Stage, Layer, Rect, Circle, Line, Text, Transformer, Image as KonvaImage, Path, Group,
 } from 'react-konva';
 import { useDesignStore, type Artboard, type DesignElement } from '../../store/designStore';
-import { LayoutGrid, Square, Maximize, Minimize, RotateCcw, FlipHorizontal, FlipVertical, AlignHorizontalCenters, AlignVerticalCenters, DistributeHorizontal, DistributeVertical, Grid, Ruler } from 'lucide-react';
+import { LayoutGrid, Square, Maximize, Minimize, Grid, Ruler } from 'lucide-react';
 import Konva from 'konva';
 import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
@@ -50,7 +50,7 @@ interface ShapeProps {
   el: DesignElement;
   isPlaying: boolean;
   registerNode: (id: string, node: Konva.Node | null) => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, e?: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
   onDragMove: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
   onTransformEnd: (e: any) => void;
@@ -209,6 +209,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     addElement,
     duplicateElement,
     removeElement,
+    removeElements,
     reorderElement,
     totalDuration,
     isPlaying,
@@ -216,8 +217,6 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     canvasBackground,
     canvasBackgroundImage,
     setActiveArtboard,
-    canvasWidth,
-    canvasHeight,
   } = useDesignStore();
 
   const trRef = useRef<Konva.Transformer>(null);
@@ -231,11 +230,10 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showGrid, setShowGrid] = useState(false);
   const [showRulers, setShowRulers] = useState(true);
-  const [snapToGrid, setSnapToGrid] = useState(false);
-  const [gridSize, setGridSize] = useState(20);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null);
+  const [snapToGrid] = useState(false);
+  const [gridSize] = useState(20);
   const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-  const [manualGuides, setManualGuides] = useState<{ x?: number; y?: number }[]>([]);
+  const [manualGuides] = useState<Array<{ x?: number; y?: number }>>([]);
   const [showSafeZone, setShowSafeZone] = useState(false);
 
   const elements = board.elements;
@@ -280,6 +278,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     };
   };
 
+  // Enhanced snapping with grid and manual guides
   const handleDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     const stage = e.target.getStage();
     if (!stage) return;
@@ -287,6 +286,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     const itemBounds = getObjectSnappingEdges(e.target);
     const resultGuides: { x?: number, y?: number }[] = [];
 
+    // Smart guides (other elements)
     itemBounds.vertical.forEach((itemBound) => {
       lineGuideStops.vertical.forEach((guide) => {
         if (Math.abs(guide - itemBound.guide) < GUIDELINE_OFFSET) {
@@ -303,8 +303,45 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
         }
       });
     });
+
+    // Manual guides
+    manualGuides.forEach((guide) => {
+      const gx = guide.x;
+      const gy = guide.y;
+      if (gx !== undefined) {
+        itemBounds.vertical.forEach((itemBound) => {
+          if (Math.abs(gx - itemBound.guide) < GUIDELINE_OFFSET) {
+            resultGuides.push({ x: gx });
+            e.target.x(gx - itemBound.offset);
+          }
+        });
+      }
+      if (gy !== undefined) {
+        itemBounds.horizontal.forEach((itemBound) => {
+          if (Math.abs(gy - itemBound.guide) < GUIDELINE_OFFSET) {
+            resultGuides.push({ y: gy });
+            e.target.y(gy - itemBound.offset);
+          }
+        });
+      }
+    });
+
+    // Grid snap
+    if (snapToGrid) {
+      const snappedX = Math.round(e.target.x() / gridSize) * gridSize;
+      const snappedY = Math.round(e.target.y() / gridSize) * gridSize;
+      if (Math.abs(snappedX - e.target.x()) < GUIDELINE_OFFSET) {
+        resultGuides.push({ x: snappedX });
+        e.target.x(snappedX);
+      }
+      if (Math.abs(snappedY - e.target.y()) < GUIDELINE_OFFSET) {
+        resultGuides.push({ y: snappedY });
+        e.target.y(snappedY);
+      }
+    }
+
     setGuides(resultGuides);
-  }, [getLineGuideStops]);
+  }, [getLineGuideStops, manualGuides, snapToGrid, gridSize]);
 
   const handleDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     setGuides([]);
@@ -323,6 +360,338 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     node.scaleX(1);
     node.scaleY(1);
   }, [updateElement]);
+
+  // Zoom/pan handlers
+  const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
+    e.evt.preventDefault();
+    const stage = e.target.getStage();
+    if (!stage) return;
+
+    const scaleBy = 1.1;
+    const oldScale = stage.scaleX();
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    const pos = stage.position();
+    const mousePointTo = {
+      x: (pointer.x - pos.x) / oldScale,
+      y: (pointer.y - pos.y) / oldScale,
+    };
+
+    const newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
+    const clampedScale = Math.max(0.1, Math.min(5, newScale));
+
+    stage.scale({ x: clampedScale, y: clampedScale });
+
+    const newPos = {
+      x: pointer.x - mousePointTo.x * clampedScale,
+      y: pointer.y - mousePointTo.y * clampedScale,
+    };
+    stage.position(newPos);
+    setZoom(clampedScale);
+    setPan(newPos);
+  }, []);
+
+  
+
+  const handleStageMouseUp = useCallback(() => {
+    const container = stageRef.current?.container();
+    if (container) container.style.cursor = 'default';
+  }, []);
+
+  const handleStageMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    const stage = e.target.getStage();
+    if (!stage) return;
+
+    const pointer = stage.getPointerPosition();
+    if (pointer) {
+      // Update cursor position for rulers
+    }
+
+    // Pan with middle mouse or Alt+drag
+    if (e.evt.buttons === 4 || (e.evt.buttons === 1 && e.evt.altKey)) {
+      e.evt.preventDefault();
+      const pos = stage.position();
+      const newPos = {
+        x: pos.x + e.evt.movementX,
+        y: pos.y + e.evt.movementY,
+      };
+      stage.position(newPos);
+      setPan(newPos);
+      const container = stageRef.current?.container();
+      if (container) container.style.cursor = 'grabbing';
+      return;
+    }
+
+    const onEmpty = e.target === stage || e.target.name() === 'canvas-bg';
+    const container = stage.container();
+    if (container) container.style.cursor = onEmpty ? 'default' : 'pointer';
+  }, []);
+
+  const handleStageMouseLeave = useCallback(() => {
+    const container = stageRef.current?.container();
+    if (container) container.style.cursor = 'default';
+  }, []);
+
+  // Selection box (marquee select)
+  const handleStageClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    activate();
+    const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'canvas-bg';
+    if (clickedOnEmpty) {
+      if (!e.evt.shiftKey && !e.evt.metaKey && !e.evt.ctrlKey) {
+        selectElement(null);
+      }
+      // Start selection box
+      const stage = e.target.getStage();
+      const pointer = stage?.getPointerPosition();
+      if (pointer) {
+        setSelectionBox({ x1: pointer.x, y1: pointer.y, x2: pointer.x, y2: pointer.y });
+      }
+    }
+  }, [activate, selectElement]);
+
+  const handleStageDragMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (!selectionBox) return;
+    const stage = e.target.getStage();
+    const pointer = stage?.getPointerPosition();
+    if (pointer) {
+      setSelectionBox({ ...selectionBox, x2: pointer.x, y2: pointer.y });
+    }
+  }, [selectionBox]);
+
+  const handleStageDragEnd = useCallback(() => {
+    if (!selectionBox) return;
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const x1 = Math.min(selectionBox.x1, selectionBox.x2);
+    const y1 = Math.min(selectionBox.y1, selectionBox.y2);
+    const x2 = Math.max(selectionBox.x1, selectionBox.x2);
+    const y2 = Math.max(selectionBox.y1, selectionBox.y2);
+
+    const selected: string[] = [];
+    elements.forEach((el) => {
+      const node = nodeRefs.current.get(el.id);
+      if (node) {
+        const box = node.getClientRect();
+        if (box.x >= x1 && box.y >= y1 && box.x + box.width <= x2 && box.y + box.height <= y2) {
+          selected.push(el.id);
+        }
+      }
+    });
+
+    if (selected.length > 0) {
+      selectElements(selected);
+    }
+    setSelectionBox(null);
+  }, [selectionBox, elements, selectElements]);
+
+  const handleContextMenuAction = useCallback((action: string, elementId: string) => {
+    switch (action) {
+      case 'duplicate':
+        duplicateElement(elementId);
+        break;
+      case 'delete':
+        removeElement(elementId);
+        break;
+      case 'bring-front':
+        reorderElement(elementId, 'top');
+        break;
+      case 'bring-forward':
+        reorderElement(elementId, 'up');
+        break;
+      case 'send-back':
+        reorderElement(elementId, 'bottom');
+        break;
+      case 'send-backward':
+        reorderElement(elementId, 'down');
+        break;
+      case 'copy-style': {
+        // Store style for paste
+        const el = elements.find(e => e.id === elementId);
+        if (el) {
+          localStorage.setItem('copiedStyle', JSON.stringify({
+            fill: el.fill,
+            stroke: el.stroke,
+            strokeWidth: el.strokeWidth,
+            shadowBlur: el.shadowBlur,
+            shadowColor: el.shadowColor,
+            shadowOffsetX: el.shadowOffsetX,
+            shadowOffsetY: el.shadowOffsetY,
+            shadowOpacity: el.shadowOpacity,
+            cornerRadius: el.cornerRadius,
+            opacity: el.opacity,
+          }));
+        }
+        break;
+      }
+      case 'paste-style': {
+        try {
+          const style = JSON.parse(localStorage.getItem('copiedStyle') || '{}');
+          updateElement(elementId, style);
+        } catch { /* ignore */ }
+        break;
+      }
+      case 'flip-horizontal': {
+        const el = elements.find(e => e.id === elementId);
+        if (el) {
+          const node = nodeRefs.current.get(elementId);
+          if (node) {
+            const centerX = node.x() + node.width() / 2;
+            node.scaleX(-node.scaleX());
+            node.x(centerX - node.width() * node.scaleX() / 2);
+            handleTransformEnd({ target: node });
+          }
+        }
+        break;
+      }
+      case 'flip-vertical': {
+        const el = elements.find(e => e.id === elementId);
+        if (el) {
+          const node = nodeRefs.current.get(elementId);
+          if (node) {
+            const centerY = node.y() + node.height() / 2;
+            node.scaleY(-node.scaleY());
+              node.y(centerY - node.height() * node.scaleY() / 2);
+              handleTransformEnd({ target: node });
+            }
+          }
+        }
+        break;
+    }
+  }, [elements, duplicateElement, removeElement, reorderElement, updateElement, handleTransformEnd, nodeRefs]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!isActive) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      if (isPlaying) return;
+
+      const selected = selectedIds.length > 0 ? selectedIds : (selectedId ? [selectedId] : []);
+
+      // Delete
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selected.length > 0) {
+          e.preventDefault();
+          if (selected.length === 1) {
+            removeElement(selected[0]);
+          } else {
+            removeElements(selected);
+          }
+        }
+      }
+
+      // Duplicate (Cmd+D)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+        e.preventDefault();
+        selected.forEach(id => duplicateElement(id));
+      }
+
+      // Copy (Cmd+C) - copy style
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        if (selected.length === 1) {
+          const el = elements.find(e => e.id === selected[0]);
+          if (el) {
+            localStorage.setItem('copiedStyle', JSON.stringify({
+              fill: el.fill,
+              stroke: el.stroke,
+              strokeWidth: el.strokeWidth,
+              shadowBlur: el.shadowBlur,
+              shadowColor: el.shadowColor,
+              shadowOffsetX: el.shadowOffsetX,
+              shadowOffsetY: el.shadowOffsetY,
+              shadowOpacity: el.shadowOpacity,
+              cornerRadius: el.cornerRadius,
+              opacity: el.opacity,
+            }));
+          }
+        }
+      }
+
+      // Paste style (Cmd+Shift+V)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'v') {
+        e.preventDefault();
+        try {
+          const style = JSON.parse(localStorage.getItem('copiedStyle') || '{}');
+          selected.forEach(id => updateElement(id, style));
+        } catch { /* ignore */ }
+      }
+
+      // Select all (Cmd+A)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+        e.preventDefault();
+        selectElements(elements.map(e => e.id));
+      }
+
+      // Nudge with arrows
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        selected.forEach(id => {
+          const el = elements.find(e => e.id === id);
+          if (!el || el.locked) return;
+          const updates: Partial<DesignElement> = {};
+          if (e.key === 'ArrowUp') updates.y = (el.y || 0) - step;
+          else if (e.key === 'ArrowDown') updates.y = (el.y || 0) + step;
+          else if (e.key === 'ArrowLeft') updates.x = (el.x || 0) - step;
+          else if (e.key === 'ArrowRight') updates.x = (el.x || 0) + step;
+          updateElement(id, updates);
+        });
+      }
+
+      // Tool shortcuts
+      if (!e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        switch (e.key.toLowerCase()) {
+          case 'v': // Select tool
+            // Handled by toolbar
+            break;
+          case 'h': // Hand tool (pan)
+            // Space+drag handled by mouse
+            break;
+          case 't': // Text tool
+            addElement({
+              id: `el-${Date.now()}`,
+              type: 'text',
+              x: board.width / 2,
+              y: board.height / 2,
+              width: 200,
+              height: 60,
+              text: 'Double click to edit',
+              fontSize: 24,
+              fill: '#000000',
+            });
+            break;
+          case 'r': // Rectangle tool
+            addElement({
+              id: `el-${Date.now()}`,
+              type: 'rect',
+              x: board.width / 2 - 50,
+              y: board.height / 2 - 50,
+              width: 100,
+              height: 100,
+              fill: '#3b82f6',
+            });
+            break;
+          case 'o': // Circle tool
+            addElement({
+              id: `el-${Date.now()}`,
+              type: 'circle',
+              x: board.width / 2 - 50,
+              y: board.height / 2 - 50,
+              width: 100,
+              height: 100,
+              fill: '#ef4444',
+            });
+            break;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isActive, isPlaying, selectedId, selectedIds, elements, board.width, board.height, addElement, duplicateElement, removeElement, removeElements, updateElement, selectElements]);
 
   // Build this board's animation timeline and seek it with the shared playhead,
   // so previews animate on every visible size during playback.
@@ -367,41 +736,10 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     }
   }, [selectedId, elements, isActive]);
 
-  // Keyboard nudging — only the active board handles it (others are mounted too).
-  useEffect(() => {
-    if (!isActive) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-      if (!selectedId || isPlaying) return;
-      const el = elements.find((el) => el.id === selectedId);
-      if (!el || el.locked) return;
-      const step = e.shiftKey ? 10 : 1;
-      if (e.key === 'ArrowUp') { updateElement(selectedId, { y: (el.y || 0) - step }); e.preventDefault(); }
-      else if (e.key === 'ArrowDown') { updateElement(selectedId, { y: (el.y || 0) + step }); e.preventDefault(); }
-      else if (e.key === 'ArrowLeft') { updateElement(selectedId, { x: (el.x || 0) - step }); e.preventDefault(); }
-      else if (e.key === 'ArrowRight') { updateElement(selectedId, { x: (el.x || 0) + step }); e.preventDefault(); }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isActive, selectedId, elements, updateElement, isPlaying]);
-
   const checkDeselect = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
     activate();
     const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'canvas-bg';
     if (clickedOnEmpty) selectElement(null);
-  };
-
-  // Hand cursor over elements, default arrow over the empty canvas.
-  const handleStageMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    const stage = e.target.getStage();
-    if (!stage) return;
-    const onEmpty = e.target === stage || e.target.name() === 'canvas-bg';
-    stage.container().style.cursor = onEmpty ? 'default' : 'pointer';
-  };
-
-  const handleStageMouseLeave = () => {
-    const container = stageRef.current?.container();
-    if (container) container.style.cursor = 'default';
   };
 
   // Inline text editing (double-click a text element on canvas).
@@ -436,12 +774,101 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
 
   const editingElement = editingText ? elements.find((e) => e.id === editingText.id) : null;
 
+  // Enhanced Transformer for multi-select
+  const getTransformerNodes = useCallback(() => {
+    if (!isActive) return [];
+    const nodes: Konva.Node[] = [];
+    selectedIds.forEach(id => {
+      const node = trRef.current?.getStage()?.findOne('#' + id);
+      if (node) nodes.push(node);
+    });
+    return nodes;
+  }, [selectedIds, isActive]);
+
+  // Update transformer for multi-select
+  useEffect(() => {
+    if (!trRef.current) return;
+    if (!isActive) {
+      trRef.current.nodes([]);
+      trRef.current.getLayer()?.batchDraw();
+      return;
+    }
+    const nodes = getTransformerNodes();
+    if (nodes.length > 0) {
+      trRef.current.nodes(nodes);
+      trRef.current.getLayer()?.batchDraw();
+    } else {
+      trRef.current.nodes([]);
+      trRef.current.getLayer()?.batchDraw();
+    }
+  }, [selectedIds, selectedId, elements, isActive, getTransformerNodes]);
+
   return (
     <div
       className={`relative bg-white overflow-hidden transition-shadow ${isActive ? 'ring-2 ring-red-500 shadow-xl' : 'shadow-md ring-1 ring-black/10 hover:ring-red-400/60'
         }`}
       style={{ width: board.width, height: board.height }}
     >
+      {/* Top Ruler */}
+      {showRulers && (
+        <div className="absolute top-0 left-0 right-0 h-6 bg-[#1a1a21] border-b border-[#2a2a35] flex items-center justify-between px-2 z-10 pointer-events-none">
+          <div className="flex-1 overflow-hidden">
+            {Array.from({ length: Math.ceil(board.width / 50) + 1 }, (_, i) => i * 50).map((x) => (
+              <div key={x} className="absolute bottom-0 w-px h-4 bg-[#333]" style={{ left: x }} />
+            ))}
+            {Array.from({ length: Math.ceil(board.width / 10) + 1 }, (_, i) => i * 10).map((x) => (
+              <div key={x} className="absolute bottom-0 w-px h-2 bg-[#444]" style={{ left: x }} />
+            ))}
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-gray-400 font-mono bg-[#15151c] px-2 py-0.5 rounded-r border-l border-[#2a2a35]">
+            {Math.round(pan.x / zoom * -1)}px
+          </div>
+        </div>
+      )}
+
+      {/* Left Ruler */}
+      {showRulers && (
+        <div className="absolute top-0 left-0 bottom-0 w-6 bg-[#1a1a21] border-r border-[#2a2a35] flex flex-col items-end justify-between py-2 z-10 pointer-events-none">
+          <div className="flex-1 overflow-hidden">
+            {Array.from({ length: Math.ceil(board.height / 50) + 1 }, (_, i) => i * 50).map((y) => (
+              <div key={y} className="absolute right-0 w-4 h-px bg-[#333]" style={{ top: y }} />
+            ))}
+            {Array.from({ length: Math.ceil(board.height / 10) + 1 }, (_, i) => i * 10).map((y) => (
+              <div key={y} className="absolute right-0 w-2 h-px bg-[#444]" style={{ top: y }} />
+            ))}
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-gray-400 font-mono bg-[#15151c] px-1 py-0.5 rounded-t border-t border-[#2a2a35] writing-mode-vertical-lr">
+            {Math.round(pan.y / zoom * -1)}px
+          </div>
+        </div>
+      )}
+
+      {/* Canvas Toolbar */}
+      <div className="absolute top-8 left-2 z-20 flex flex-col gap-1">
+        <div className="bg-[#15151c]/90 border border-[#2a2a35] rounded-lg p-1.5 flex flex-col gap-1">
+          <button onClick={() => setShowGrid(!showGrid)} className={`p-1.5 rounded ${showGrid ? 'bg-red-500/20 text-red-400' : 'text-gray-400 hover:bg-white/10'}`} title="Toggle Grid (G)">
+            <Grid size={14} />
+          </button>
+          <button onClick={() => setShowRulers(!showRulers)} className={`p-1.5 rounded ${showRulers ? 'bg-red-500/20 text-red-400' : 'text-gray-400 hover:bg-white/10'}`} title="Toggle Rulers (Ctrl+R)">
+            <Ruler size={14} />
+          </button>
+          <button onClick={() => setShowSafeZone(!showSafeZone)} className={`p-1.5 rounded ${showSafeZone ? 'bg-red-500/20 text-red-400' : 'text-gray-400 hover:bg-white/10'}`} title="Toggle Safe Zone">
+            <Square size={14} className="opacity-50" />
+          </button>
+          <div className="h-px bg-[#2a2a35]" />
+          <button onClick={() => setZoom(1)} className="p-1.5 rounded text-gray-400 hover:bg-white/10" title="Reset Zoom (100%)">
+            <Minimize size={14} />
+          </button>
+          <button onClick={() => setZoom(z => Math.min(5, z * 1.2))} className="p-1.5 rounded text-gray-400 hover:bg-white/10" title="Zoom In">
+            <Maximize size={14} />
+          </button>
+          <button onClick={() => setZoom(z => Math.max(0.1, z / 1.2))} className="p-1.5 rounded text-gray-400 hover:bg-white/10" title="Zoom Out">
+            <Maximize size={14} className="rotate-180" />
+          </button>
+          <span className="text-[10px] text-gray-400 text-center px-1">{Math.round(zoom * 100)}%</span>
+        </div>
+      </div>
+
       <Stage
         ref={(stage) => {
           stageRef.current = stage;
@@ -449,12 +876,45 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
         }}
         width={board.width}
         height={board.height}
+        scale={{ x: zoom, y: zoom }}
+        position={{ x: pan.x, y: pan.y }}
         onMouseDown={checkDeselect}
         onTouchStart={checkDeselect}
+        onWheel={handleWheel}
         onMouseMove={handleStageMouseMove}
+        onMouseUp={handleStageMouseUp}
         onMouseLeave={handleStageMouseLeave}
+        onClick={handleStageClick}
+        onDragMove={handleStageDragMove}
+        onDragEnd={handleStageDragEnd}
       >
         <Layer>
+          {/* Grid */}
+          {showGrid && (
+            <Group>
+              {Array.from({ length: Math.ceil(board.width / gridSize) + 1 }, (_, i) => i * gridSize).map((x) => (
+                <Line key={`v-${x}`} points={[x, 0, x, board.height]} stroke="#e0e0e0" strokeWidth={0.5} />
+              ))}
+              {Array.from({ length: Math.ceil(board.height / gridSize) + 1 }, (_, i) => i * gridSize).map((y) => (
+                <Line key={`h-${y}`} points={[0, y, board.width, y]} stroke="#e0e0e0" strokeWidth={0.5} />
+              ))}
+            </Group>
+          )}
+
+          {/* Safe Zone */}
+          {showSafeZone && (
+            <Rect
+              x={board.width * 0.1}
+              y={board.height * 0.1}
+              width={board.width * 0.8}
+              height={board.height * 0.8}
+              stroke="rgb(255, 100, 100)"
+              strokeWidth={1}
+              strokeStyle={[2, 4]}
+              fillEnabled={false}
+            />
+          )}
+
           <Rect
             name="canvas-bg"
             width={board.width}
@@ -473,7 +933,19 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
               el={el}
               isPlaying={isPlaying}
               registerNode={registerNode}
-              onSelect={(id) => { activate(); selectElement(id); }}
+              onSelect={(id, e) => {
+                activate();
+                const evt = e?.evt;
+                if (evt && (evt.shiftKey || evt.metaKey || evt.ctrlKey)) {
+                  if (selectedIds.includes(id)) {
+                    selectElements(selectedIds.filter(sid => sid !== id));
+                  } else {
+                    selectElements([...selectedIds, id]);
+                  }
+                } else {
+                  selectElement(id);
+                }
+              }}
               onDragMove={handleDragMove}
               onDragEnd={handleDragEnd}
               onTransformEnd={handleTransformEnd}
@@ -482,17 +954,153 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
             />
           ))}
 
-          {guides.map((guide, i) => (
-            <Line
-              key={i}
-              points={guide.x !== undefined ? [guide.x, 0, guide.x, board.height] : [0, guide.y!, board.width, guide.y!]}
+          {/* Manual guides */}
+          {manualGuides.map((guide, i) => {
+            const gx = guide.x;
+            const gy = guide.y;
+            return gx !== undefined ? (
+              <Line
+                key={`mg-${i}`}
+                points={[gx, 0, gx, board.height]}
+                stroke="rgb(255, 200, 0)"
+                strokeWidth={1}
+                dash={[8, 4]}
+              />
+            ) : gy !== undefined ? (
+              <Line
+                key={`mg-${i}`}
+                points={[0, gy, board.width, gy]}
+                stroke="rgb(255, 200, 0)"
+                strokeWidth={1}
+                dash={[8, 4]}
+              />
+            ) : null;
+          })}
+
+          {/* Smart guides */}
+          {guides.map((guide, i) => {
+            const gx = guide.x;
+            const gy = guide.y;
+            return gx !== undefined ? (
+              <Line
+                key={i}
+                points={[gx, 0, gx, board.height]}
+                stroke="rgb(0, 161, 255)"
+                strokeWidth={1}
+                dash={[4, 6]}
+              />
+            ) : gy !== undefined ? (
+              <Line
+                key={i}
+                points={[0, gy, board.width, gy]}
+                stroke="rgb(0, 161, 255)"
+                strokeWidth={1}
+                dash={[4, 6]}
+              />
+            ) : null;
+          })}
+
+          {/* Selection box (marquee) */}
+          {selectionBox && (
+            <Rect
+              x={Math.min(selectionBox.x1, selectionBox.x2)}
+              y={Math.min(selectionBox.y1, selectionBox.y2)}
+              width={Math.abs(selectionBox.x2 - selectionBox.x1)}
+              height={Math.abs(selectionBox.y2 - selectionBox.y1)}
               stroke="rgb(0, 161, 255)"
               strokeWidth={1}
-              dash={[4, 6]}
+              strokeStyle={[4, 4]}
+              fill="rgb(0, 161, 255)"
+              fillOpacity={0.1}
             />
-          ))}
+          )}
 
-          {isActive && selectedId && <Transformer ref={trRef} keepRatio={true} />}
+          {/* Enhanced Transformer with rotation, flip */}
+          {isActive && selectedIds.length > 0 && (
+            <Transformer
+              ref={trRef}
+              nodes={getTransformerNodes()}
+              keepRatio={true}
+              rotateEnabled={true}
+              rotateAnchorOffset={50}
+              borderEnabled={true}
+              borderStroke="rgb(239, 68, 68)"
+              borderStrokeWidth={1}
+              borderDash={[4, 4]}
+              anchorFill="rgb(239, 68, 68)"
+              anchorStroke="white"
+              anchorSize={8}
+              anchorCornerRadius={0}
+              boundBoxFunc={(oldBox, newBox) => {
+                // Prevent scaling below minimum size
+                if (newBox.width < 5 || newBox.height < 5) return oldBox;
+                return newBox;
+              }}
+            />
+          )}
+
+          {/* Flip controls for transformer */}
+          {isActive && selectedIds.length > 0 && (
+            <Group>
+              {getTransformerNodes().map((node) => {
+                const box = node.getClientRect();
+                return (
+                  <Group key={`controls-${node.id()}`}>
+                    {/* Flip Horizontal */}
+                    <Rect
+                      x={box.x - 30}
+                      y={box.y + box.height / 2 - 12}
+                      width={24}
+                      height={24}
+                      fill="rgb(239, 68, 68)"
+                      stroke="white"
+                      strokeWidth={1}
+                      cornerRadius={3}
+                      onClick={(e) => {
+                        e.cancelBubble = true;
+                        handleContextMenuAction('flip-horizontal', node.id());
+                      }}
+                      onMouseOver={(e) => {
+                        const container = e.target.getStage()?.container();
+                        if (container) container.style.cursor = 'pointer';
+                      }}
+                      onMouseOut={(e) => {
+                        const container = e.target.getStage()?.container();
+                        if (container) container.style.cursor = 'default';
+                      }}
+                    >
+                      <Text x={box.x - 18} y={box.y + box.height / 2 + 4} text="⇄" fontSize={12} fill="white" />
+                    </Rect>
+                    {/* Flip Vertical */}
+                    <Rect
+                      x={box.x + box.width + 6}
+                      y={box.y + box.height / 2 - 12}
+                      width={24}
+                      height={24}
+                      fill="rgb(239, 68, 68)"
+                      stroke="white"
+                      strokeWidth={1}
+                      cornerRadius={3}
+                      onClick={(e) => {
+                        e.cancelBubble = true;
+                        handleContextMenuAction('flip-vertical', node.id());
+                      }}
+                      onMouseOver={(e) => {
+                        const container = e.target.getStage()?.container();
+                        if (container) container.style.cursor = 'pointer';
+                      }}
+                      onMouseOut={(e) => {
+                        const container = e.target.getStage()?.container();
+                        if (container) container.style.cursor = 'default';
+                      }}
+                    >
+                      <Text x={box.x + box.width + 18} y={box.y + box.height / 2 + 4} text="⇅" fontSize={12} fill="white" />
+                    </Rect>
+                  </Group>
+                );
+              })}
+            </Group>
+          )}
         </Layer>
       </Stage>
 

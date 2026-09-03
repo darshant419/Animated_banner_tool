@@ -30,7 +30,7 @@ const elementLabel = (el: DesignElement) =>
 export const Timeline: React.FC = () => {
   const {
     elements,
-    selectedId,
+    selectedIds,
     selectedKeyframe,
     playheadTime,
     isPlaying,
@@ -41,6 +41,7 @@ export const Timeline: React.FC = () => {
     setTotalDuration,
     setLoop,
     selectElement,
+    selectElements,
     selectKeyframe,
     addKeyframe,
     updateKeyframe,
@@ -271,39 +272,53 @@ export const Timeline: React.FC = () => {
             Layers
           </div>
           <div className="flex-1 overflow-y-auto">
-            {elements.map((el) => (
-              <div
-                key={el.id}
-                onClick={() => selectElement(el.id)}
-                className={`flex items-center gap-2 px-2 cursor-pointer border-b border-[#1a1a21] group ${selectedId === el.id ? 'bg-red-500/10' : 'hover:bg-[#1e1e26]'
-                  } ${el.visible === false ? 'opacity-40' : ''}`}
-                style={{ height: ROW_H }}
-              >
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleVisibility(el.id); }}
-                  className="text-gray-500 hover:text-white"
-                  title="Toggle visibility"
+            {elements.map((el) => {
+              const isSelected = selectedIds.includes(el.id);
+              return (
+                <div
+                  key={el.id}
+                  onClick={(e) => {
+                    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                      if (isSelected) {
+                        selectElements(selectedIds.filter((id) => id !== el.id));
+                      } else {
+                        selectElements([...selectedIds, el.id]);
+                      }
+                    } else {
+                      selectElement(el.id);
+                    }
+                  }}
+                  onDoubleClick={handleAddKeyframe(el)}
+                  className={`flex items-center gap-2 px-2 cursor-pointer border-b border-[#1a1a21] group ${isSelected ? 'bg-red-500/10' : 'hover:bg-[#1e1e26]'
+                    } ${el.visible === false ? 'opacity-40' : ''}`}
+                  style={{ height: ROW_H }}
                 >
-                  {el.visible === false ? <EyeOff size={13} /> : <Eye size={13} />}
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleLock(el.id); }}
-                  className={`${el.locked ? 'text-red-400' : 'text-gray-500 hover:text-gray-300'}`}
-                  title="Toggle lock"
-                >
-                  {el.locked ? <Lock size={12} /> : <Unlock size={12} />}
-                </button>
-                <span className="text-gray-500">{typeIcon(el.type)}</span>
-                <span className="text-xs text-gray-200 truncate flex-1">{elementLabel(el)}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); removeElement(el.id); }}
-                  className="text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Delete layer"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleVisibility(el.id); }}
+                    className="text-gray-500 hover:text-white"
+                    title="Toggle visibility"
+                  >
+                    {el.visible === false ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleLock(el.id); }}
+                    className={`${el.locked ? 'text-red-400' : 'text-gray-500 hover:text-gray-300'}`}
+                    title="Toggle lock"
+                  >
+                    {el.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                  </button>
+                  <span className="text-gray-500">{typeIcon(el.type)}</span>
+                  <span className="text-xs text-gray-200 truncate flex-1">{elementLabel(el)}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeElement(el.id); }}
+                    className="text-gray-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Delete layer"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              );
+            })}
             {elements.length === 0 && (
               <div className="p-4 text-xs text-gray-500 text-center">
                 Add elements from the toolbar to animate them.
@@ -334,13 +349,24 @@ export const Timeline: React.FC = () => {
             <div className="relative" style={{ height: elements.length * ROW_H }}>
               {elements.map((el, i) => {
                 const kfs = getElementKeyframes(el, totalDuration);
+                const isSelected = selectedIds.includes(el.id);
                 return (
                   <div
                     key={el.id}
-                    className={`absolute left-0 right-0 border-b border-[#1a1a21] ${selectedId === el.id ? 'bg-red-500/15' : 'hover:bg-[#1e1e26]/60'
+                    className={`absolute left-0 right-0 border-b border-[#1a1a21] ${isSelected ? 'bg-red-500/15' : 'hover:bg-[#1e1e26]/60'
                       }`}
                     style={{ top: i * ROW_H, height: ROW_H }}
-                    onClick={() => selectElement(el.id)}
+                    onClick={(e) => {
+                      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                        if (isSelected) {
+                          selectElements(selectedIds.filter((id) => id !== el.id));
+                        } else {
+                          selectElements([...selectedIds, el.id]);
+                        }
+                      } else {
+                        selectElement(el.id);
+                      }
+                    }}
                     onDoubleClick={handleAddKeyframe(el)}
                   >
                     {/* Animation timeframe segments (entrance / main / timed blocks / exit) */}
