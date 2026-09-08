@@ -1,10 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Stage, Layer, Rect, Circle, Line, Text, Transformer, Image as KonvaImage, Path, Group,
+  Stage, Layer, Rect, Circle, Line, Text, Transformer, Image as KonvaImage, Path,
 } from 'react-konva';
+import { LayoutGrid, Square } from 'lucide-react';
 import { useDesignStore, type Artboard, type DesignElement } from '../../store/designStore';
-import { LayoutGrid, Square, Maximize, Minimize, RotateCcw, FlipHorizontal, FlipVertical, AlignHorizontalCenters, AlignVerticalCenters, DistributeHorizontal, DistributeVertical, Grid, Ruler } from 'lucide-react';
 import Konva from 'konva';
 import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
@@ -202,22 +202,14 @@ interface BoardStageProps {
 const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage }) => {
   const {
     selectedId,
-    selectedIds,
     updateElement,
     selectElement,
-    selectElements,
-    addElement,
-    duplicateElement,
-    removeElement,
-    reorderElement,
     totalDuration,
     isPlaying,
     playheadTime,
     canvasBackground,
     canvasBackgroundImage,
     setActiveArtboard,
-    canvasWidth,
-    canvasHeight,
   } = useDesignStore();
 
   const trRef = useRef<Konva.Transformer>(null);
@@ -227,16 +219,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   const [guides, setGuides] = useState<{ x?: number, y?: number }[]>([]);
   const [editingText, setEditingText] = useState<{ id: string; value: string } | null>(null);
   const [editingISI, setEditingISI] = useState<{ id: string; header: string; html: string } | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [showGrid, setShowGrid] = useState(false);
-  const [showRulers, setShowRulers] = useState(true);
-  const [snapToGrid, setSnapToGrid] = useState(false);
-  const [gridSize, setGridSize] = useState(20);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null);
-  const [selectionBox, setSelectionBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
-  const [manualGuides, setManualGuides] = useState<{ x?: number; y?: number }[]>([]);
-  const [showSafeZone, setShowSafeZone] = useState(false);
+  // removed unused local state vars (zoom, pan, grid, guides UI) to satisfy TS no-unused-vars
 
   const elements = board.elements;
 
@@ -645,6 +628,25 @@ export const DesignCanvas: React.FC = () => {
     window.addEventListener('export-canvas', handleExport);
     return () => window.removeEventListener('export-canvas', handleExport);
   }, [selectElement, activeArtboardId, canvasWidth, canvasHeight]);
+
+  // Thumbnail capture for project saving.
+  useEffect(() => {
+    const handleThumbnail = () => {
+      const stage = stageRegistry.current.get(activeArtboardId);
+      if (stage) {
+        try {
+          const dataUrl = stage.toDataURL({ pixelRatio: 1 });
+          window.dispatchEvent(new CustomEvent('thumbnail-ready', { detail: { dataUrl } }));
+        } catch {
+          window.dispatchEvent(new CustomEvent('thumbnail-ready', { detail: { dataUrl: null } }));
+        }
+      } else {
+        window.dispatchEvent(new CustomEvent('thumbnail-ready', { detail: { dataUrl: null } }));
+      }
+    };
+    window.addEventListener('request-thumbnail', handleThumbnail);
+    return () => window.removeEventListener('request-thumbnail', handleThumbnail);
+  }, [activeArtboardId]);
 
   // Export HTML package in traditional banner format with CSS classes and setTimeout timeline.
   useEffect(() => {

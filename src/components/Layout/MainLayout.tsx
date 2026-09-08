@@ -1,23 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Toolbar, type ToolType } from '../Toolbar/Toolbar';
 import { PropertiesPanel } from '../PropertiesPanel/PropertiesPanel';
 import { DesignCanvas } from '../Canvas/DesignCanvas';
-import { Layout, Layers, Undo2, Redo2, RefreshCcw, Play, Pause, Plus, Download, FileCode2, ChevronDown } from 'lucide-react';
+import { Layers, Undo2, Redo2, Play, Pause, Plus, Download, FileCode2, ChevronDown, Save, ArrowLeft, Check, Loader2 } from 'lucide-react';
 import { useDesignStore, getArtboardPresets } from '../../store/designStore';
 import { VariationsPanel } from '../Variations/VariationsPanel';
 import { TemplatesPanel } from '../TemplatesPanel/TemplatesPanel';
 import { AssetsPanel } from '../AssetsPanel/AssetsPanel';
 import { LayersPanel } from '../LayersPanel/LayersPanel';
 import { Timeline } from '../Timeline/Timeline';
-import type { AppMode } from '../ModeSelect/ModeSelect';
 import { getTemplateById } from '../../templates/emrTemplates';
+import {
+    saveProject,
+    type BannerProject,
+    type DesignSnapshot,
+} from '../../services/projectsService';
+import { captureCanvasThumbnail } from '../../services/thumbnailService';
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 type MainLayoutProps = {
-    mode: AppMode;
-    onChangeMode?: () => void;
+    project: BannerProject;
+    onBack: () => void;
+    onProjectUpdate?: (updated: BannerProject) => void;
 };
 
-export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) => {
+export const MainLayout: React.FC<MainLayoutProps> = ({ project, onBack, onProjectUpdate }) => {
+    const mode = project.bannerType;
     const {
         selectedId,
         undo,
@@ -30,12 +39,64 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         clearHistory,
         artboards,
         activeArtboardId,
+        canvasBackground,
+        canvasBackgroundImage,
+        totalDuration,
+        loop,
         setActiveArtboard,
         addArtboard,
         addCampaignSizes,
         isPlaying,
         setIsPlaying,
     } = useDesignStore();
+
+    const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+    const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const savedStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // ── Build design snapshot from store ────────────────────────────────────
+    const buildSnapshot = useCallback((): DesignSnapshot => ({
+        artboards,
+        canvasBackground,
+        canvasBackgroundImage,
+        totalDuration,
+        loop,
+        activeArtboardId,
+    }), [artboards, canvasBackground, canvasBackgroundImage, totalDuration, loop, activeArtboardId]);
+
+    // ── Save logic ───────────────────────────────────────────────────────────
+    const doSave = useCallback(async (withThumbnail = false) => {
+        setSaveStatus('saving');
+        try {
+            const snapshot = buildSnapshot();
+            let thumbUrl: string | undefined;
+            if (withThumbnail) {
+                const url = await captureCanvasThumbnail();
+                if (url) thumbUrl = url;
+            }
+            await saveProject(project.id, snapshot, thumbUrl);
+            setSaveStatus('saved');
+            onProjectUpdate?.({ ...project, thumbnailUrl: thumbUrl ?? project.thumbnailUrl, updatedAt: Date.now() });
+            if (savedStatusTimer.current) clearTimeout(savedStatusTimer.current);
+            savedStatusTimer.current = setTimeout(() => setSaveStatus('idle'), 2500);
+        } catch {
+            setSaveStatus('error');
+        }
+    }, [buildSnapshot, project, onProjectUpdate]);
+
+    // ── Auto-save every 30s ──────────────────────────────────────────────────
+    useEffect(() => {
+        autoSaveTimer.current = setTimeout(() => doSave(false), 30_000);
+        return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+    }, [artboards, canvasBackground, totalDuration, loop, doSave]);
+
+    // ── Ctrl+S ───────────────────────────────────────────────────────────────
+    const handleCtrlS = useCallback((e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            doSave(true);
+        }
+    }, [doSave]);
 
     const [activeTool, setActiveTool] = useState<ToolType>('select');
     const [showAddArtboard, setShowAddArtboard] = useState(false);
@@ -61,6 +122,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         const handleKeyDown = (e: KeyboardEvent) => {
             const isCtrlOrCmd = e.ctrlKey || e.metaKey;
 
+            handleCtrlS(e);
+
             if (isCtrlOrCmd && e.key === 'z') {
                 e.preventDefault();
                 if (e.shiftKey) redo();
@@ -79,22 +142,33 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [undo, redo, removeElement, selectedId]);
+    }, [undo, redo, removeElement, selectedId, handleCtrlS]);
 
+    // Load design state from saved project OR initialise fresh
     useEffect(() => {
-        if (mode === 'animated') {
+        if (project.designState) {
+            // Restore saved project
+            const ds = project.designState;
+            // Use loadTemplate on first artboard elements to hydrate the store
+            const first = ds.artboards[0];
+            if (first) {
+                reset();
+                loadTemplate(first.elements, first.width, first.height, ds.totalDuration);
+                clearHistory();
+            }
+        } else if (mode === 'emr') {
+            const emrTemplate = getTemplateById('emr-static-300x250');
+            if (emrTemplate && 'elements' in emrTemplate) {
+                reset();
+                loadTemplate(emrTemplate.elements, emrTemplate.width, emrTemplate.height);
+                clearHistory();
+            }
+        } else {
             reset();
             clearHistory();
-            return;
         }
-
-        const emrTemplate = getTemplateById('emr-static-300x250');
-        if (emrTemplate && 'elements' in emrTemplate) {
-            reset();
-            loadTemplate(emrTemplate.elements, emrTemplate.width, emrTemplate.height);
-            clearHistory();
-        }
-    }, [mode, reset, loadTemplate, clearHistory]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [project.id]);
 
     const availablePresets = getArtboardPresets().filter(
         (p) => !artboards.some((a) => a.width === p.width && a.height === p.height),
@@ -103,32 +177,32 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-[#1e1e26]">
             {/* Header */}
-            <header className="h-14 bg-black border-b border-white/10 flex items-center px-4 gap-4 shrink-0">
-                <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center text-white shadow-sm">
-                        <Layout size={18} />
+            <header className="h-14 bg-black border-b border-white/10 flex items-center px-4 gap-3 shrink-0">
+                {/* Back */}
+                <button
+                    onClick={async () => { await doSave(true); onBack(); }}
+                    className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white hover:bg-white/10 px-2.5 py-1.5 rounded-lg border border-white/10 transition shrink-0"
+                    title="Back to Dashboard"
+                >
+                    <ArrowLeft size={14} />
+                    Dashboard
+                </button>
+
+                <div className="h-5 w-px bg-white/10" />
+
+                {/* Project info */}
+                <div className="flex items-center gap-2 min-w-0">
+                    <div className="min-w-0">
+                        <div className="font-semibold text-white text-sm leading-none truncate max-w-[200px]">{project.name}</div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">{project.clientName}</div>
                     </div>
-                    <div>
-                        <div className="font-bold text-white leading-none">Banner Studio</div>
-                        <div className="text-[10px] text-gray-400 mt-0.5">Animated HTML5 builder</div>
-                    </div>
-                    <span className={`ml-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${mode === 'emr'
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        : 'bg-red-500/10 text-red-400 border-red-500/30'
-                        }`}
-                    >
+                    <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                        mode === 'emr'
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : 'bg-red-500/10 text-red-400 border-red-500/30'
+                    }`}>
                         {mode === 'emr' ? 'EMR' : 'ANIMATED'}
                     </span>
-                    {onChangeMode && (
-                        <button
-                            onClick={onChangeMode}
-                            className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10 border border-white/10 px-2 py-1 rounded-md transition"
-                            title="Switch mode"
-                        >
-                            <RefreshCcw size={12} />
-                            Switch
-                        </button>
-                    )}
                 </div>
 
                 {/* Artboards */}
@@ -208,7 +282,33 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
 
                 <div className="flex-1" />
 
+                {/* Save status */}
+                <div className="flex items-center gap-1.5 text-xs">
+                    {saveStatus === 'saving' && (
+                        <span className="flex items-center gap-1.5 text-gray-400">
+                            <Loader2 size={12} className="animate-spin" /> Saving…
+                        </span>
+                    )}
+                    {saveStatus === 'saved' && (
+                        <span className="flex items-center gap-1.5 text-emerald-400">
+                            <Check size={12} /> Saved
+                        </span>
+                    )}
+                    {saveStatus === 'error' && (
+                        <span className="text-red-400">Save failed</span>
+                    )}
+                </div>
+
                 <div className="flex items-center gap-2">
+                    {/* Save */}
+                    <button
+                        onClick={() => doSave(true)}
+                        disabled={saveStatus === 'saving'}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white/8 hover:bg-white/15 border border-white/10 text-gray-200 rounded-md text-sm font-medium transition disabled:opacity-40"
+                        title="Save (Ctrl+S)"
+                    >
+                        <Save size={14} /> Save
+                    </button>
                     <button
                         onClick={() => setIsPlaying(!isPlaying)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${isPlaying
