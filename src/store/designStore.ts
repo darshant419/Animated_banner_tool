@@ -176,11 +176,10 @@ interface HistoryState {
 interface DesignState {
     elements: DesignElement[];
     selectedId: string | null;
-    selectedIds: string[];
     selectedKeyframe: SelectedKeyframe | null;
     playheadTime: number;
     isPlaying: boolean;
-    /** True while the user hovers over ISI content during playback â€” the global
+    /** True while the user hovers over ISI content during playback GÇö the global
      *  playhead (timeline) freezes until the mouse leaves. */
     previewPaused: boolean;
     canvasWidth: number;
@@ -204,10 +203,7 @@ interface DesignState {
     updateElement: (id: string, updates: Partial<DesignElement>) => void;
     duplicateElement: (id: string) => void;
     selectElement: (id: string | null) => void;
-    selectElements: (ids: string[]) => void;
     removeElement: (id: string) => void;
-    removeElements: (ids: string[]) => void;
-
     reorderElement: (id: string, type: 'up' | 'down' | 'top' | 'bottom') => void;
     toggleVisibility: (id: string) => void;
     toggleLock: (id: string) => void;
@@ -304,7 +300,7 @@ const persistActiveElements = (state: DesignState): Artboard[] =>
 
 /**
  * Clone elements for another artboard with fresh, board-unique ids so that in
- * the multi-size view every size owns independent elements â€” selecting or
+ * the multi-size view every size owns independent elements GÇö selecting or
  * editing a component affects only that one size, never the others.
  * Keyframe and timed-animation block ids are remapped too.
  */
@@ -358,7 +354,6 @@ const extendForNewKeyframe = (totalDuration: number, time: number) =>
 export const useDesignStore = create<DesignState>((set) => ({
     elements: [],
     selectedId: null,
-    selectedIds: [],
     selectedKeyframe: null,
     playheadTime: 0,
     isPlaying: false,
@@ -380,7 +375,6 @@ export const useDesignStore = create<DesignState>((set) => ({
     reset: () => set({
         elements: [],
         selectedId: null,
-        selectedIds: [],
         selectedKeyframe: null,
         playheadTime: 0,
         isPlaying: false,
@@ -435,14 +429,7 @@ export const useDesignStore = create<DesignState>((set) => ({
 
     selectElement: (id) => set((state) => ({
         selectedId: id,
-        selectedIds: id ? [id] : [],
         selectedKeyframe: id ? state.selectedKeyframe : null,
-    })),
-
-    selectElements: (ids) => set((state) => ({
-        selectedIds: ids,
-        selectedId: ids.length === 1 ? ids[0] : (state.selectedId && ids.includes(state.selectedId) ? state.selectedId : (ids[0] || null)),
-        selectedKeyframe: ids.length === 1 ? state.selectedKeyframe : null,
     })),
 
     duplicateElement: (id) =>
@@ -476,24 +463,11 @@ export const useDesignStore = create<DesignState>((set) => ({
         set((state) => ({
             ...saveHistory(state),
             selectedId: state.selectedId === id ? null : state.selectedId,
-            selectedIds: state.selectedIds.filter((sid) => sid !== id),
             selectedKeyframe:
                 state.selectedKeyframe?.elementId === id ? null : state.selectedKeyframe,
             ...withActiveElements(
                 state,
                 state.elements.filter((el) => el.id !== id)
-            ),
-        })),
-
-    removeElements: (ids) =>
-        set((state) => ({
-            ...saveHistory(state),
-            selectedId: state.selectedId && ids.includes(state.selectedId) ? null : state.selectedId,
-            selectedIds: state.selectedIds.filter((sid) => !ids.includes(sid)),
-            selectedKeyframe: state.selectedKeyframe && ids.includes(state.selectedKeyframe.elementId) ? null : state.selectedKeyframe,
-            ...withActiveElements(
-                state,
-                state.elements.filter((el) => !ids.includes(el.id))
             ),
         })),
 
