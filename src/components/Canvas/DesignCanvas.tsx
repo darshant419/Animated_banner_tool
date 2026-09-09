@@ -10,7 +10,7 @@ import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
 import { ISIOverlay } from './ISIOverlay';
 import JSZip from 'jszip';
-import { buildMasterTimeline, applyHoverEffect, resetHoverEffect } from './AnimationHelpers';
+import { buildMasterTimeline, previewElementOnCanvas, stopActivePreview } from './AnimationHelpers';
 import { getElementBaseState, getElementKeyframes } from '../../utils/keyframes';
 
 const URLImage = React.forwardRef<Konva.Image, any>(function URLImage({ image, ...props }, ref) {
@@ -69,7 +69,7 @@ const ElementShape = memo(function ElementShape({
   onEditText,
   onEditISI,
 }: ShapeProps) {
-  const commonProps = {
+const commonProps = {
     id: el.id,
     x: el.x,
     y: el.y,
@@ -94,8 +94,8 @@ const ElementShape = memo(function ElementShape({
     onDragMove,
     onDragEnd,
     onTransformEnd,
-    onMouseEnter: (e: any) => applyHoverEffect(e.target, el),
-    onMouseLeave: (e: any) => resetHoverEffect(e.target, el),
+    onEditText,
+    onEditISI,
   };
 
   const ref = (node: Konva.Node | null) => registerNode(el.id, node);
@@ -330,7 +330,36 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     }
   }, [playheadTime]);
 
-  // Transformer selection GÇö only the active board shows selection handles, so
+  // Live animation preview for selected element (triggered by Animation Studio Dialog)
+  useEffect(() => {
+    if (!isActive) return;
+    const handlePreview = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { elementId, preset, duration, delay, easing, loop } = customEvent.detail || {};
+      if (!elementId) return;
+      const el = elements.find((x) => x.id === elementId);
+      const node = nodeRefs.current.get(elementId);
+      if (el && node) {
+        previewElementOnCanvas(node, el, preset, duration, delay, easing, loop, () => {
+          window.dispatchEvent(new CustomEvent('element-animation-preview-complete'));
+        });
+      }
+    };
+
+    const handleStopPreview = () => {
+      stopActivePreview();
+    };
+
+    window.addEventListener('preview-element-animation', handlePreview as EventListener);
+    window.addEventListener('stop-preview-element-animation', handleStopPreview as EventListener);
+    return () => {
+      window.removeEventListener('preview-element-animation', handlePreview as EventListener);
+      window.removeEventListener('stop-preview-element-animation', handleStopPreview as EventListener);
+      stopActivePreview();
+    };
+  }, [isActive, elements]);
+
+  // Transformer selection Gï¿½ï¿½ only the active board shows selection handles, so
   // picking a component in the multi-size view never highlights other sizes.
   useEffect(() => {
     if (!trRef.current) return;
@@ -349,7 +378,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     }
   }, [selectedId, elements, isActive]);
 
-  // Keyboard nudging GÇö only the active board handles it (others are mounted too).
+  // Keyboard nudging Gï¿½ï¿½ only the active board handles it (others are mounted too).
   useEffect(() => {
     if (!isActive) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -530,7 +559,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
         />
       )}
 
-      {/* On-canvas ISI rich-content editor GÇö rendered via a portal so the banner's
+      {/* On-canvas ISI rich-content editor Gï¿½ï¿½ rendered via a portal so the banner's
           overflow-hidden wrapper can't clip or misposition it */}
       {editingISI && createPortal(
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60" onClick={commitISI}>
@@ -538,7 +567,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#232330]">
               <div>
                 <h3 className="font-semibold text-gray-50 text-sm">Edit ISI content</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Rich HTML GÇö double-click the ISI tray on canvas to reopen</p>
+                <p className="text-xs text-gray-400 mt-0.5">Rich HTML Gï¿½ï¿½ double-click the ISI tray on canvas to reopen</p>
               </div>
               <button onClick={commitISI} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
             </div>
@@ -598,7 +627,7 @@ export const DesignCanvas: React.FC = () => {
     canvasBackgroundImage,
   } = useDesignStore();
 
-  // Live stage instances by artboard id GÇö lets exports grab the focused board's stage.
+  // Live stage instances by artboard id Gï¿½ï¿½ lets exports grab the focused board's stage.
   const stageRegistry = useRef<Map<string, Konva.Stage>>(new Map());
   const registerStage = useCallback((id: string, stage: Konva.Stage | null) => {
     if (stage) stageRegistry.current.set(id, stage);
@@ -875,8 +904,9 @@ export const DesignCanvas: React.FC = () => {
             if (k.scaleX !== undefined) transformStr += ' scaleX(' + k.scaleX + ')';
             if (k.scaleY !== undefined) transformStr += ' scaleY(' + k.scaleY + ')';
             transformStr += '';
-            parts.push('transform: ' + transformStr + ';');
+                                    parts.push('transform: ' + transformStr + ';');
             if (k.letterSpacing !== undefined) parts.push('letter-spacing: ' + k.letterSpacing + 'px;');
+            if (k.blur !== undefined) parts.push('filter: blur(' + k.blur + 'px);');
             cssLines.push('  ' + pct + '% { ' + parts.join(' ') + ' }');
           });
           cssLines.push('}');
@@ -970,7 +1000,7 @@ export const DesignCanvas: React.FC = () => {
       </div>
 
       {multiArtboardView ? (
-        /* Multi-size view GÇö every artboard live & editable side by side */
+        /* Multi-size view Gï¿½ï¿½ every artboard live & editable side by side */
         <div className="w-full min-h-full flex flex-wrap items-start justify-center gap-x-8 gap-y-10">
           {artboards.map((ab) => (
             <div
@@ -980,7 +1010,7 @@ export const DesignCanvas: React.FC = () => {
               <div className="flex items-center justify-between gap-3 px-1 pb-2">
                 <span className="text-[11px] font-semibold text-gray-100">{ab.label}</span>
                 <span className="flex items-center gap-2">
-                  <span className="text-[10px] text-gray-500 font-mono">{ab.width}+ù{ab.height}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">{ab.width}+ï¿½{ab.height}</span>
                   {activeArtboardId === ab.id ? (
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 font-bold tracking-wide">EDITING</span>
                   ) : (

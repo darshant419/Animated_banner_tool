@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   MousePointer2, Type, Image as ImageIcon,
-  ScrollText, Layers, Shapes, Layout, FileJson,
+  ScrollText, Layers, Shapes, Layout, FileJson, Sparkles,
 } from 'lucide-react';
 import { useDesignStore, type ElementType } from '../../store/designStore';
 import { EMR_ISI_TEXT } from '../../templates/emrTemplates';

@@ -16,6 +16,8 @@ export interface AnimationKeyframe {
     scaleY?: number;
     /** Pixels (or other CSS units) */
     letterSpacing?: number;
+    /** CSS blur radius in pixels (The Brief's 5th keyframe action) */
+    blur?: number;
     /** GSAP ease id, e.g. "power2.out" */
     easing: string;
 }
@@ -179,7 +181,7 @@ interface DesignState {
     selectedKeyframe: SelectedKeyframe | null;
     playheadTime: number;
     isPlaying: boolean;
-    /** True while the user hovers over ISI content during playback GÇö the global
+    /** True while the user hovers over ISI content during playback Gï¿½ï¿½ the global
      *  playhead (timeline) freezes until the mouse leaves. */
     previewPaused: boolean;
     canvasWidth: number;
@@ -300,7 +302,7 @@ const persistActiveElements = (state: DesignState): Artboard[] =>
 
 /**
  * Clone elements for another artboard with fresh, board-unique ids so that in
- * the multi-size view every size owns independent elements GÇö selecting or
+ * the multi-size view every size owns independent elements Gï¿½ï¿½ selecting or
  * editing a component affects only that one size, never the others.
  * Keyframe and timed-animation block ids are remapped too.
  */

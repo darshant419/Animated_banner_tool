@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Toolbar, type ToolType } from '../Toolbar/Toolbar';
 import { PropertiesPanel } from '../PropertiesPanel/PropertiesPanel';
 import { DesignCanvas } from '../Canvas/DesignCanvas';
-import { Layout, Layers, Undo2, Redo2, RefreshCcw, Play, Pause, Plus, Download, FileCode2, ChevronDown } from 'lucide-react';
+import { Layout, Layers, Undo2, Redo2, RefreshCcw, Play, Pause, Plus, Download, FileCode2, ChevronDown, Sparkles } from 'lucide-react';
 import { useDesignStore, getArtboardPresets } from '../../store/designStore';
 import { VariationsPanel } from '../Variations/VariationsPanel';
 import { TemplatesPanel } from '../TemplatesPanel/TemplatesPanel';
 import { AssetsPanel } from '../AssetsPanel/AssetsPanel';
 import { LayersPanel } from '../LayersPanel/LayersPanel';
 import { Timeline } from '../Timeline/Timeline';
+import { AnimationDialog } from '../AnimationDialog/AnimationDialog';
 import type { AppMode } from '../ModeSelect/ModeSelect';
 import { getTemplateById } from '../../templates/emrTemplates';
 
@@ -41,6 +42,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
     const [showAddArtboard, setShowAddArtboard] = useState(false);
     const [showCampaign, setShowCampaign] = useState(false);
     const [campaignSelection, setCampaignSelection] = useState<Set<string>>(new Set());
+    const [isAnimationStudioOpen, setIsAnimationStudioOpen] = useState(false);
+    const [animationStudioTab, setAnimationStudioTab] = useState<'in' | 'out' | 'sequence'>('in');
+
+    useEffect(() => {
+        const handleOpenStudio = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail?.tab) {
+                setAnimationStudioTab(customEvent.detail.tab);
+            }
+            setIsAnimationStudioOpen(true);
+        };
+        window.addEventListener('open-animation-studio', handleOpenStudio as EventListener);
+        return () => window.removeEventListener('open-animation-studio', handleOpenStudio as EventListener);
+    }, []);
 
     const campaignPresets = getArtboardPresets();
     const toggleCampaignSize = (label: string) =>
@@ -315,6 +330,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                     </div>
                 </div>
             )}
+
+            {/* Animation Studio Modal Dialogue */}
+            <AnimationDialog
+                isOpen={isAnimationStudioOpen}
+                onClose={() => setIsAnimationStudioOpen(false)}
+                initialTab={animationStudioTab}
+            />
         </div>
     );
 };

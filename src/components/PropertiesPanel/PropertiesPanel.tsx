@@ -1,11 +1,11 @@
 import React, { useRef } from 'react';
-import { useDesignStore, type DesignElement } from '../../store/designStore';
-import { EASINGS, applyStaggeredDelays } from '../../utils/keyframes';
-import { getAnimationOptionGroups, getEntranceAnimationGroups, getExitAnimationGroups, isAnimistaLoop, animationLabel } from '../../utils/animations';
+import { useDesignStore } from '../../store/designStore';
+import { EASINGS } from '../../utils/keyframes';
+import { animationLabel, getAnimationOptionGroups } from '../../utils/animations';
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
     AlignLeft, AlignCenter, AlignRight,
-    Bold, Italic, Underline, Link as LinkIcon, Type, List, Plus, Trash2
+    Bold, Italic, Underline, Link as LinkIcon, Type, List, Plus, Trash2, Sparkles,
 } from 'lucide-react';
 
 export const PropertiesPanel: React.FC = () => {
@@ -36,7 +36,7 @@ export const PropertiesPanel: React.FC = () => {
         removeElementAnimation,
     } = useDesignStore();
 
-    const isiTextareaRef = useRef<HTMLTextAreaElement>(null);
+        const isiTextareaRef = useRef<HTMLTextAreaElement>(null);
     const [isiPaddingExpanded, setIsiPaddingExpanded] = React.useState(false);
     const [isiMarginExpanded, setIsiMarginExpanded] = React.useState(false);
 
@@ -624,349 +624,150 @@ return (
                                         value={selectedElement.lineHeight || 1.2}
                                         onChange={(e) => handleChange('lineHeight', Number(e.target.value))}
                                         className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Animation Controls */}
-                <div className="space-y-3 border-t border-[#232330] pt-4">
-                    <label className="text-xs font-medium text-gray-400 uppercase">Quick Animation</label>
-                    <div className="space-y-3">
-                        <div>
-                            <label className="text-xs text-gray-400 mb-1 block">Preset</label>
-                            <select
-                                value={selectedElement.animation || 'none'}
-                                onChange={(e) => {
-                                    const value = e.target.value;
-                                    updateElement(selectedElement.id, {
-                                        animation: value === 'none' ? undefined : value as DesignElement['animation'],
-                                        anim: undefined,
-                                        animationLoop: isAnimistaLoop(value),
-                                    });
-                                }}
-                                className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                            >
-                                <option value="none">None (use keyframes)</option>
-                                {getAnimationOptionGroups().map((group) => (
-                                    <optgroup key={group.label} label={group.label}>
-                                        {group.options.map((opt) => (
-                                            <option key={opt.value} value={opt.value}>
-                                                {opt.label}
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Entrance</label>
-                                <select
-                                    value={selectedElement.enterAnimation || 'none'}
-                                    onChange={(e) => {
-                                        const value = e.target.value;
-                                        updateElement(selectedElement.id, {
-                                            enterAnimation: value === 'none' ? undefined : value,
-                                        });
-                                    }}
-                                    className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                >
-                                    <option value="none">None</option>
-                                    {getEntranceAnimationGroups().map((group) => (
-                                        <optgroup key={group.label} label={group.label}>
-                                            {group.options.map((opt) => (
-                                                <option key={opt.value} value={opt.value}>
-                                                    {opt.label}
-                                                </option>
-                                            ))}
-                                        </optgroup>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Exit</label>
-                                <select
-                                    value={selectedElement.exitAnimation || 'none'}
-                                    onChange={(e) => {
-                                        const value = e.target.value;
-                                        updateElement(selectedElement.id, {
-                                            exitAnimation: value === 'none' ? undefined : value,
-                                        });
-                                    }}
-                                    className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                >
-                                    <option value="none">None</option>
-                                    {getExitAnimationGroups().map((group) => (
-                                        <optgroup key={group.label} label={group.label}>
-                                            {group.options.map((opt) => (
-                                                <option key={opt.value} value={opt.value}>
-                                                    {opt.label}
-                                                </option>
-                                            ))}
-                                        </optgroup>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Enter Delay (s)</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={selectedElement.enterDelay || 0}
-                                    onChange={(e) => handleChange('enterDelay', Number(e.target.value))}
-                                    className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Exit Delay (s)</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={selectedElement.exitDelay || 0}
-                                    onChange={(e) => handleChange('exitDelay', Number(e.target.value))}
-                                    className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Duration (s)</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={selectedElement.animationDuration || 1}
-                                    onChange={(e) => handleChange('animationDuration', Number(e.target.value))}
-                                    className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Delay (s)</label>
-                                <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={selectedElement.animationDelay || 0}
-                                    onChange={(e) => handleChange('animationDelay', Number(e.target.value))}
-                                    className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="checkbox"
-                                id="animationLoop"
-                                checked={selectedElement.animationLoop || false}
-                                onChange={(e) => handleChange('animationLoop', e.target.checked)}
-                                className="rounded border-[#33333f] text-red-500 focus:ring-red-500"
-                            />
-                            <label htmlFor="animationLoop" className="text-xs text-gray-200">
-                                Loop Animation
-                            </label>
-                        </div>
-
-                        <div className="border-t border-[#232330] pt-3">
-                            <label className="text-xs font-medium text-gray-400 uppercase mb-2 block">Sequence (Stagger)</label>
-                            <p className="text-[11px] text-gray-400 mb-2">
-                                Apply staggered delays to all layers so they animate one after another (bottom to top).
-                            </p>
-                            <div className="grid grid-cols-2 gap-2 mb-2">
-                                <div>
-                                    <label className="text-xs text-gray-400 mb-1 block">Gap (s)</label>
-                                    <input
-                                        type="number"
-                                        step="0.1"
-                                        min="0"
-                                        value={0.2}
-                                        onChange={() => {}}
-                                        className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                        id="staggerGap"
-                                    />
-                                </div>
-                                <div className="flex items-end">
-                                    <button
-                                        onClick={() => {
-                                            const gap = parseFloat((document.getElementById('staggerGap') as HTMLInputElement)?.value || '0.2');
-                                            const updates = applyStaggeredDelays(elements, gap, true);
-                                            updates.forEach(u => updateElement(u.id!, { enterDelay: u.enterDelay }));
-                                        }}
-                                        className="w-full bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/50 rounded px-3 py-1.5 text-xs font-medium transition"
-                                    >
-                                        Sequence Layers
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                <button
-                                    onClick={() => {
-                                        const gap = parseFloat((document.getElementById('staggerGap') as HTMLInputElement)?.value || '0.2');
-                                        const updates = applyStaggeredDelays(elements, gap, false);
-                                        updates.forEach(u => updateElement(u.id!, { animationDelay: u.animationDelay }));
-                                    }}
-                                    className="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 border border-[#2a2a35] rounded px-3 py-1.5 text-xs font-medium transition"
-                                >
-                                    Sequence (Main Anim)
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        elements.forEach(el => updateElement(el.id, { enterDelay: 0, animationDelay: 0 }));
-                                    }}
-                                    className="w-full bg-gray-800 hover:bg-gray-700 text-gray-300 border border-[#2a2a35] rounded px-3 py-1.5 text-xs font-medium transition"
-                                >
-                                    Clear All Delays
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Timed Animation Blocks (multiple animations per element, each in its own timeframe) */}
-                <div className="space-y-3 border-t border-[#232330] pt-4">
+                               {/* Animation Controls */}
+                <div className="space-y-3.5 border-t border-[#232330] pt-4">
                     <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium text-gray-400 uppercase">
-                            Timed Animations
-                        </label>
+                        <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Animation</label>
                         <button
-                            onClick={() =>
-                                addElementAnimation(selectedElement.id, {
-                                    id: `anim-${Date.now()}`,
-                                    preset: 'fadeIn',
-                                    start: 0,
-                                    duration: 1,
-                                })
-                            }
-                            className="flex items-center gap-1 text-xs text-red-500 hover:text-red-400 font-medium"
+                            onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'in' } }))}
+                            className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition"
+                            title="Open Animation Studio Dialogue"
                         >
-                            <Plus size={12} /> Add
+                            <Sparkles size={12} />
+                            <span>Studio</span>
                         </button>
                     </div>
-                    <p className="text-[11px] text-gray-400">
-                        Add more animations for this element — each one plays inside its own timeframe
-                        (e.g. fade in at 0s, fade out at 5s).
-                    </p>
-                    <div className="space-y-3">
-                        {(selectedElement.animations || []).map((block) => (
-                            <div key={block.id} className="border border-[#2a2a35] rounded-lg p-2.5 space-y-2 bg-[#1a1a21]/60">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-xs font-medium text-gray-200 truncate">
-                                        {animationLabel(block.preset)}
-                                    </span>
-                                    <button
-                                        onClick={() => removeElementAnimation(selectedElement.id, block.id)}
-                                        className="text-gray-400 hover:text-red-500"
-                                        title="Remove animation"
-                                    >
-                                        <Trash2 size={13} />
-                                    </button>
-                                </div>
-                                <div>
-                                    <label className="text-[11px] text-gray-400 mb-1 block">Preset</label>
-                                    <select
-                                        value={block.preset}
-                                        onChange={(e) =>
-                                            updateElementAnimation(selectedElement.id, block.id, {
-                                                preset: e.target.value,
-                                            })
-                                        }
-                                        className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                    >
-                                        {getAnimationOptionGroups().map((group) => (
-                                            <optgroup key={group.label} label={group.label}>
-                                                {group.options.map((opt) => (
-                                                    <option key={opt.value} value={opt.value}>
-                                                        {opt.label}
-                                                    </option>
-                                                ))}
-                                            </optgroup>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label className="text-[11px] text-gray-400 mb-1 block">Start (s)</label>
-                                        <input
-                                            type="number"
-                                            step="0.1"
-                                            min="0"
-                                            value={block.start}
-                                            onChange={(e) =>
-                                                updateElementAnimation(selectedElement.id, block.id, {
-                                                    start: Number(e.target.value) || 0,
-                                                })
-                                            }
-                                            className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[11px] text-gray-400 mb-1 block">Duration (s)</label>
-                                        <input
-                                            type="number"
-                                            step="0.1"
-                                            min="0"
-                                            value={block.duration}
-                                            onChange={(e) =>
-                                                updateElementAnimation(selectedElement.id, block.id, {
-                                                    duration: Number(e.target.value) || 0,
-                                                })
-                                            }
-                                            className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[11px] text-gray-400 mb-1 block">Easing</label>
-                                        <select
-                                            value={block.ease || 'power1.inOut'}
-                                            onChange={(e) =>
-                                                updateElementAnimation(selectedElement.id, block.id, {
-                                                    ease: e.target.value,
-                                                })
-                                            }
-                                            className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                        >
-                                            {EASINGS.map((e) => (
-                                                <option key={e.id} value={e.id}>
-                                                    {e.label}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div className="flex items-end">
-                                        <label className="flex items-center gap-1.5 text-xs text-gray-400 pb-2 cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={block.loop || false}
-                                                onChange={(e) =>
-                                                    updateElementAnimation(selectedElement.id, block.id, {
-                                                        loop: e.target.checked,
-                                                    })
-                                                }
-                                                className="rounded border-gray-400 text-red-500 focus:ring-red-500"
-                                            />
-                                            Loop
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                        {(selectedElement.animations || []).length === 0 && (
-                            <div className="text-[11px] text-gray-400 border border-dashed border-[#2a2a35] rounded-lg p-3 text-center">
-                                No timed animations yet. Click <span className="text-red-500 font-medium">+ Add</span> to
-                                run another animation on this element.
-                            </div>
-                        )}
+
+                    {/* Entrance Animation Dropdown & Trigger */}
+                    <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Entrance (In)</label>
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={selectedElement.enterAnimation || selectedElement.animation || 'none'}
+                                onChange={(e) => {
+                                    handleChange('enterAnimation', e.target.value);
+                                    handleChange('animation', e.target.value);
+                                }}
+                                className="flex-1 border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                            >
+                                <option value="none">None (Static)</option>
+                                <optgroup label="Fade">
+                                    <option value="fadeIn">Fade In</option>
+                                    <option value="fadeInTop">Fade In Top</option>
+                                    <option value="fadeInBottom">Fade In Bottom</option>
+                                    <option value="fadeInLeft">Fade In Left</option>
+                                    <option value="fadeInRight">Fade In Right</option>
+                                </optgroup>
+                                <optgroup label="Slide">
+                                    <option value="slideInTop">Slide In Top</option>
+                                    <option value="slideInBottom">Slide In Bottom</option>
+                                    <option value="slideInLeft">Slide In Left</option>
+                                    <option value="slideInRight">Slide In Right</option>
+                                </optgroup>
+                                <optgroup label="Scale & Zoom">
+                                    <option value="zoomIn">Zoom In</option>
+                                    <option value="scaleInCenter">Scale In Center</option>
+                                    <option value="scaleInTop">Scale In Top</option>
+                                    <option value="scaleInBottom">Scale In Bottom</option>
+                                </optgroup>
+                                <optgroup label="Flip & Rotate">
+                                    <option value="rotateIn">Rotate In</option>
+                                    <option value="flipInHorTop">Flip In Top</option>
+                                    <option value="flipInHorBottom">Flip In Bottom</option>
+                                </optgroup>
+                                <optgroup label="Blur">
+                                    <option value="blurIn">Blur In</option>
+                                </optgroup>
+                            </select>
+
+                            <button
+                                onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'in' } }))}
+                                className="p-1.5 rounded-lg bg-[#20202c] border border-[#2e2e40] text-amber-400 hover:bg-[#2a2a3a] transition shrink-0"
+                                title="Browse all presets in Animation Studio"
+                            >
+                                <Sparkles size={14} />
+                            </button>
+                        </div>
                     </div>
-                </div>
+
+                    {/* Duration & Delay */}
+                    <div className="grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="text-xs text-gray-400 mb-1 block">Duration (s)</label>
+                            <input
+                                type="number"
+                                step="0.1"
+                                min="0.1"
+                                value={selectedElement.animationDuration || 0.8}
+                                onChange={(e) => handleChange('animationDuration', Number(e.target.value))}
+                                className="w-full border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100 font-mono"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs text-gray-400 mb-1 block">Delay (s)</label>
+                            <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={selectedElement.enterDelay ?? selectedElement.animationDelay ?? 0}
+                                onChange={(e) => {
+                                    const val = Number(e.target.value);
+                                    handleChange('enterDelay', val);
+                                    handleChange('animationDelay', val);
+                                }}
+                                className="w-full border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100 font-mono"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Exit Animation (Optional) */}
+                    <div>
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs text-gray-400 block">Exit Animation</label>
+                            <span className="text-[10px] text-gray-500">Optional</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={selectedElement.exitAnimation || 'none'}
+                                onChange={(e) => handleChange('exitAnimation', e.target.value)}
+                                className="flex-1 border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                            >
+                                <option value="none">None</option>
+                                <option value="fadeOut">Fade Out</option>
+                                <option value="slideOutTop">Slide Out Top</option>
+                                <option value="slideOutBottom">Slide Out Bottom</option>
+                                <option value="slideOutLeft">Slide Out Left</option>
+                                <option value="slideOutRight">Slide Out Right</option>
+                                <option value="zoomOut">Zoom Out</option>
+                                <option value="rotateOut">Rotate Out</option>
+                            </select>
+
+                            {selectedElement.exitAnimation && selectedElement.exitAnimation !== 'none' && (
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    placeholder="Exit at (s)"
+                                    value={selectedElement.exitDelay || 0}
+                                    onChange={(e) => handleChange('exitDelay', Number(e.target.value))}
+                                    className="w-16 border border-[#2a2a35] rounded-lg px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100 font-mono text-center shrink-0"
+                                    title="Exit start delay in seconds"
+                                />
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Stagger Sequence Shortcut */}
+                    <div className="border-t border-[#232330] pt-2.5">
+                        <button
+                            onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'sequence' } }))}
+                            className="w-full bg-[#1e1e28] hover:bg-[#252533] text-gray-300 border border-[#2a2a38] rounded-xl px-3 py-2 text-xs font-medium transition flex items-center justify-center gap-1.5"
+                        >
+                            <Sparkles size={12} className="text-emerald-400" />
+                            <span>Sequence & Stagger All Layers</span>
+                        </button>
+                    </div>
+                </div>   </div>
 
                 {/* Shadow */}
                 {(selectedElement.type === 'rect' || selectedElement.type === 'circle' || selectedElement.type === 'text') && (

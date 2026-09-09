@@ -1,7 +1,7 @@
 import gsap from 'gsap';
 import Konva from 'konva';
-import type { DesignElement } from '../../store/designStore';
-import { getElementBaseState, getElementKeyframes } from '../../utils/keyframes';
+import type { DesignElement, AnimationKeyframe } from '../../store/designStore';
+import { getElementBaseState, getElementKeyframes, presetToKeyframes } from '../../utils/keyframes';
 
 export const setInitialAnimationState = (node: Konva.Node, animation: string, el: DesignElement) => {
     switch (animation) {
@@ -76,7 +76,6 @@ export const setInitialAnimationState = (node: Konva.Node, animation: string, el
             node.opacity(0);
             break;
         case 'shake':
-            // No initial state needed
             break;
         case 'skew':
             node.skewX(-20);
@@ -107,7 +106,6 @@ export const applyAnimation = (
     });
 
     switch (animation) {
-        // Slide Animations
         case 'slideInTop':
         case 'slideInBottom':
             timeline.to(node, {
@@ -141,7 +139,6 @@ export const applyAnimation = (
             });
             break;
 
-        // Fade Animations
         case 'fadeIn':
             timeline.to(node, {
                 opacity: 1,
@@ -169,7 +166,6 @@ export const applyAnimation = (
             });
             break;
 
-        // Transformation Animations
         case 'zoomIn':
             timeline.to(node, {
                 scaleX: 1,
@@ -242,7 +238,6 @@ export const applyAnimation = (
             });
             break;
 
-        // Floating Animations
         case 'float':
             gsap.to(node, {
                 y: `+=${15}`,
@@ -306,29 +301,42 @@ export interface BuiltElementTimeline {
 }
 
 /**
- * Builds a GSAP timeline for a single Konva node driven by the element's
- * keyframes. The node rests at its base state at t=0, then tweens through
- * each keyframe at its absolute time.
+ * Builds a GSAP timeline for a single Konva node driven by keyframes.
  */
-export const buildElementTimeline = (node: Konva.Node, el: DesignElement, totalDuration?: number): BuiltElementTimeline => {
+export const buildElementTimeline = (
+    node: Konva.Node,
+    el: DesignElement,
+    totalDuration?: number,
+    customFrames?: AnimationKeyframe[],
+): BuiltElementTimeline => {
     const base = getElementBaseState(el);
-    const frames = getElementKeyframes(el, totalDuration);
+    const frames = customFrames || getElementKeyframes(el, totalDuration);
 
-    const timeline = gsap.timeline();
+    const blurProxy = { val: base.blur || 0 };
+
+    const timeline = gsap.timeline({
+        onUpdate: () => {
+            node.getLayer()?.batchDraw();
+        },
+    });
+
     timeline.set(node, {
         x: base.x,
         y: base.y,
-        opacity: base.opacity / 100,
-        rotation: base.rotation,
-        scaleX: base.scaleX,
-        scaleY: base.scaleY,
+        opacity: (base.opacity ?? 100) / 100,
+        rotation: base.rotation || 0,
+        scaleX: base.scaleX || 1,
+        scaleY: base.scaleY || 1,
     }, 0);
 
     let cursor = 0;
     for (const kf of frames) {
+        const dur = Math.max(0.01, kf.time - cursor);
+        const ease = kf.easing || 'power1.inOut';
+
         const vars: Record<string, unknown> = {
-            duration: Math.max(0.01, kf.time - cursor),
-            ease: kf.easing || 'power1.inOut',
+            duration: dur,
+            ease,
         };
         if (kf.x !== undefined) vars.x = kf.x;
         if (kf.y !== undefined) vars.y = kf.y;
@@ -336,7 +344,33 @@ export const buildElementTimeline = (node: Konva.Node, el: DesignElement, totalD
         if (kf.rotation !== undefined) vars.rotation = kf.rotation;
         if (kf.scaleX !== undefined) vars.scaleX = kf.scaleX;
         if (kf.scaleY !== undefined) vars.scaleY = kf.scaleY;
-        if (kf.letterSpacing !== undefined) vars.letterSpacing = kf.letterSpacing;
+        if (kf.letterSpacing !== undefined && 'letterSpacing' in (node as any)) {
+            vars.letterSpacing = kf.letterSpacing;
+        }
+
+        if (kf.blur !== undefined) {
+            timeline.to(blurProxy, {
+                val: kf.blur,
+                duration: dur,
+                ease,
+                onUpdate: () => {
+                    const anyNode = node as any;
+                    if (blurProxy.val > 0) {
+                        if (typeof anyNode.shadowBlur === 'function') {
+                            anyNode.shadowBlur(blurProxy.val);
+                            anyNode.shadowColor(anyNode.fill?.() || '#000000');
+                            anyNode.shadowOffset({ x: 0, y: 0 });
+                        }
+                    } else {
+                        if (typeof anyNode.shadowBlur === 'function') {
+                            anyNode.shadowBlur(0);
+                        }
+                    }
+                    node.getLayer()?.batchDraw();
+                },
+            }, cursor);
+        }
+
         timeline.to(node, vars, cursor);
         cursor = kf.time;
     }
@@ -348,8 +382,6 @@ export const buildElementTimeline = (node: Konva.Node, el: DesignElement, totalD
 
 /**
  * Builds a master timeline for every element in a design.
- * Loopable element timelines are nested as repeating children so the global
- * playhead can seek through a single cycle while playback loops indefinitely.
  */
 export const buildMasterTimeline = (
     nodes: Map<string, Konva.Node>,
@@ -357,7 +389,15 @@ export const buildMasterTimeline = (
     totalDuration: number,
     loop: boolean,
 ): gsap.core.Timeline => {
-    const master = gsap.timeline({ repeat: loop ? -1 : 0, repeatDelay: 0 });
+    const master = gsap.timeline({
+        repeat: loop ? -1 : 0,
+        repeatDelay: 0,
+        onUpdate: () => {
+            nodes.forEach((node) => {
+                node.getLayer()?.batchDraw();
+            });
+        },
+    });
 
     elements.forEach((el) => {
         const node = nodes.get(el.id);
@@ -376,6 +416,104 @@ export const buildMasterTimeline = (
     return master;
 };
 
+// Global active preview tracker so we can cancel isolated previews anytime
+let activePreviewTimeline: gsap.core.Timeline | null = null;
+let activePreviewNode: Konva.Node | null = null;
+let activePreviewBaseState: { x: number; y: number; opacity: number; rotation: number; scaleX: number; scaleY: number; shadowBlur: number } | null = null;
+
+/**
+ * Executes an instant real-time live preview of an animation directly on the canvas element.
+ */
+export const previewElementOnCanvas = (
+    node: Konva.Node,
+    el: DesignElement,
+    preset: string,
+    duration: number = 0.8,
+    delay: number = 0,
+    easing?: string,
+    loop: boolean = false,
+    onComplete?: () => void,
+): gsap.core.Timeline => {
+    stopActivePreview();
+
+    const base = getElementBaseState(el);
+    const anyNode = node as any;
+    activePreviewNode = node;
+    activePreviewBaseState = {
+        x: node.x(),
+        y: node.y(),
+        opacity: node.opacity(),
+        rotation: node.rotation(),
+        scaleX: node.scaleX(),
+        scaleY: node.scaleY(),
+        shadowBlur: typeof anyNode.shadowBlur === 'function' ? anyNode.shadowBlur() : 0,
+    };
+
+    const frames = presetToKeyframes(el, preset, delay, duration, easing);
+    if (frames.length === 0) {
+        return gsap.timeline();
+    }
+
+    const { timeline } = buildElementTimeline(node, el, duration + delay, frames);
+    if (loop) {
+        timeline.repeat(-1);
+        timeline.repeatDelay(0.3);
+    } else {
+        timeline.eventCallback('onComplete', () => {
+            if (onComplete) onComplete();
+            // Restore resting state smoothly
+            gsap.to(node, {
+                x: base.x,
+                y: base.y,
+                opacity: (base.opacity ?? 100) / 100,
+                rotation: base.rotation || 0,
+                scaleX: base.scaleX || 1,
+                scaleY: base.scaleY || 1,
+                duration: 0.3,
+                ease: 'power2.out',
+                onUpdate: () => {
+                    node.getLayer()?.batchDraw();
+                },
+                onComplete: () => {
+                    if (typeof anyNode.shadowBlur === 'function') {
+                        anyNode.shadowBlur(base.blur || 0);
+                    }
+                    node.getLayer()?.batchDraw();
+                },
+            });
+        });
+    }
+
+    activePreviewTimeline = timeline;
+    timeline.play(0);
+    return timeline;
+};
+
+/**
+ * Stops any active element animation preview and restores node properties.
+ */
+export const stopActivePreview = () => {
+    if (activePreviewTimeline) {
+        activePreviewTimeline.kill();
+        activePreviewTimeline = null;
+    }
+    if (activePreviewNode && activePreviewBaseState) {
+        const anyNode = activePreviewNode as any;
+        activePreviewNode.x(activePreviewBaseState.x);
+        activePreviewNode.y(activePreviewBaseState.y);
+        activePreviewNode.opacity(activePreviewBaseState.opacity);
+        activePreviewNode.rotation(activePreviewBaseState.rotation);
+        activePreviewNode.scaleX(activePreviewBaseState.scaleX);
+        activePreviewNode.scaleY(activePreviewBaseState.scaleY);
+        if (typeof anyNode.shadowBlur === 'function') {
+            anyNode.shadowBlur(activePreviewBaseState.shadowBlur);
+        }
+        activePreviewNode.getLayer()?.batchDraw();
+        activePreviewNode = null;
+        activePreviewBaseState = null;
+    }
+};
+
 export const applyHoverEffect = (node: Konva.Node, el: DesignElement) => {
     if (!el.hoverAnimation || el.hoverAnimation === 'none') return;
 
@@ -385,46 +523,61 @@ export const applyHoverEffect = (node: Konva.Node, el: DesignElement) => {
                 gsap.to(node, {
                     fill: el.hoverColor,
                     duration: 0.3,
-                    ease: 'power2.out'
+                    ease: 'power2.out',
+                    onUpdate: () => {
+                        node.getLayer()?.batchDraw();
+                    },
                 });
             }
             break;
         case 'glow':
             gsap.to(node, {
-                shadowColor: el.hoverColor || '#3b82f6',
+                shadowColor: el.hoverColor || '#ef4444',
                 shadowBlur: 20,
                 shadowOpacity: 0.8,
                 duration: 0.3,
-                ease: 'power2.out'
+                ease: 'power2.out',
+                onUpdate: () => {
+                    node.getLayer()?.batchDraw();
+                },
             });
             break;
         case 'shadowPop':
             gsap.to(node, {
-                shadowColor: 'rgba(0,0,0,0.3)',
-                shadowBlur: 10,
+                shadowColor: 'rgba(0,0,0,0.4)',
+                shadowBlur: 14,
                 shadowOffset: { x: 5, y: 5 },
-                shadowOpacity: 0.5,
+                shadowOpacity: 0.6,
                 x: el.x - 2,
                 y: el.y - 2,
                 duration: 0.2,
-                ease: 'power2.out'
+                ease: 'power2.out',
+                onUpdate: () => {
+                    node.getLayer()?.batchDraw();
+                },
             });
             break;
         case 'letterSpacing':
             if (el.type === 'text') {
                 gsap.to(node, {
-                    letterSpacing: 5,
+                    letterSpacing: (el.letterSpacing || 0) + 6,
                     duration: 0.3,
-                    ease: 'power2.out'
+                    ease: 'power2.out',
+                    onUpdate: () => {
+                        node.getLayer()?.batchDraw();
+                    },
                 });
             }
             break;
         case 'scale':
             gsap.to(node, {
-                scaleX: 1.1,
-                scaleY: 1.1,
+                scaleX: 1.08,
+                scaleY: 1.08,
                 duration: 0.2,
-                ease: 'power2.out'
+                ease: 'back.out(1.5)',
+                onUpdate: () => {
+                    node.getLayer()?.batchDraw();
+                },
             });
             break;
     }
@@ -438,43 +591,58 @@ export const resetHoverEffect = (node: Konva.Node, el: DesignElement) => {
             gsap.to(node, {
                 fill: el.fill || '#000000',
                 duration: 0.3,
-                ease: 'power2.out'
+                ease: 'power2.out',
+                onUpdate: () => {
+                    node.getLayer()?.batchDraw();
+                },
             });
             break;
         case 'glow':
             gsap.to(node, {
-                shadowBlur: 0,
-                shadowOpacity: 0,
+                shadowBlur: el.shadowBlur || 0,
+                shadowOpacity: el.shadowOpacity || 0,
                 duration: 0.3,
-                ease: 'power2.out'
+                ease: 'power2.out',
+                onUpdate: () => {
+                    node.getLayer()?.batchDraw();
+                },
             });
             break;
         case 'shadowPop':
             gsap.to(node, {
-                shadowBlur: 0,
-                shadowOffset: { x: 0, y: 0 },
-                shadowOpacity: 0,
+                shadowBlur: el.shadowBlur || 0,
+                shadowOffset: { x: el.shadowOffsetX || 0, y: el.shadowOffsetY || 0 },
+                shadowOpacity: el.shadowOpacity || 0,
                 x: el.x,
                 y: el.y,
                 duration: 0.2,
-                ease: 'power2.out'
+                ease: 'power2.out',
+                onUpdate: () => {
+                    node.getLayer()?.batchDraw();
+                },
             });
             break;
         case 'letterSpacing':
             if (el.type === 'text') {
                 gsap.to(node, {
-                    letterSpacing: 0,
+                    letterSpacing: el.letterSpacing || 0,
                     duration: 0.3,
-                    ease: 'power2.out'
+                    ease: 'power2.out',
+                    onUpdate: () => {
+                        node.getLayer()?.batchDraw();
+                    },
                 });
             }
             break;
         case 'scale':
             gsap.to(node, {
-                scaleX: 1,
-                scaleY: 1,
+                scaleX: el.scaleX || 1,
+                scaleY: el.scaleY || 1,
                 duration: 0.2,
-                ease: 'power2.out'
+                ease: 'power2.out',
+                onUpdate: () => {
+                    node.getLayer()?.batchDraw();
+                },
             });
             break;
     }

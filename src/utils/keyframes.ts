@@ -1,20 +1,21 @@
 import type { AnimationKeyframe, DesignElement } from '../store/designStore';
 import { ANIMISTA_ANIMATIONS, animationLabel } from './animations';
 
-export const EASINGS: Array<{ id: string; label: string }> = [
-    { id: 'power1.inOut', label: 'Ease (default)' },
-    { id: 'linear', label: 'Linear' },
-    { id: 'power1.in', label: 'Ease In' },
-    { id: 'power1.out', label: 'Ease Out' },
-    { id: 'power2.inOut', label: 'Ease In/Out' },
-    { id: 'power2.out', label: 'Smooth Out' },
-    { id: 'power3.inOut', label: 'Strong In/Out' },
-    { id: 'sine.inOut', label: 'Sine' },
-    { id: 'back.out', label: 'Back Out' },
-    { id: 'back.inOut', label: 'Back In/Out' },
-    { id: 'elastic.out', label: 'Elastic' },
-    { id: 'bounce.out', label: 'Bounce' },
-    { id: 'expo.out', label: 'Expo Out' },
+export const EASINGS: Array<{ id: string; label: string; desc?: string }> = [
+    { id: 'power1.inOut', label: 'Ease (default)', desc: 'Balanced acceleration & deceleration' },
+    { id: 'linear', label: 'Linear', desc: 'Constant uniform velocity' },
+    { id: 'power1.in', label: 'Ease In', desc: 'Slow start accelerating out' },
+    { id: 'power1.out', label: 'Ease Out', desc: 'Standard deceleration' },
+    { id: 'power2.inOut', label: 'Ease In/Out', desc: 'Pronounced ease curve' },
+    { id: 'power2.out', label: 'Smooth Out', desc: 'Smooth deceleration' },
+    { id: 'power3.inOut', label: 'Strong In/Out', desc: 'Fast middle with strong ease' },
+    { id: 'power3.out', label: 'Strong Out', desc: 'Fast start with long tail' },
+    { id: 'sine.inOut', label: 'Sine', desc: 'Ultra-gentle sinusoidal motion' },
+    { id: 'back.out', label: 'Back Out', desc: 'Playful overshoot pop' },
+    { id: 'back.inOut', label: 'Back In/Out', desc: 'Windup start with overshoot landing' },
+    { id: 'elastic.out', label: 'Elastic', desc: 'Springy rubber band wobble' },
+    { id: 'bounce.out', label: 'Bounce', desc: 'Bounces on landing' },
+    { id: 'expo.out', label: 'Expo Out', desc: 'Extreme sudden deceleration' },
 ];
 
 export const easingLabel = (id: string) =>
@@ -27,6 +28,7 @@ export interface ElementBaseState {
     rotation: number;
     scaleX: number;
     scaleY: number;
+    blur: number;
 }
 
 export const getElementBaseState = (el: DesignElement): ElementBaseState => ({
@@ -36,6 +38,7 @@ export const getElementBaseState = (el: DesignElement): ElementBaseState => ({
     rotation: el.rotation || 0,
     scaleX: el.scaleX || 1,
     scaleY: el.scaleY || 1,
+    blur: el.shadowBlur || 0,
 });
 
 const uid = () => `kf-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -58,6 +61,7 @@ export const presetToKeyframes = (
     animationOverride?: string,
     delayOverride?: number,
     durationOverride?: number,
+    easingOverride?: string,
 ): AnimationKeyframe[] => {
     const animation = animationOverride || el.animation || 'none';
     if (animation === 'none') return [];
@@ -67,20 +71,23 @@ export const presetToKeyframes = (
     const delay = delayOverride ?? el.animationDelay ?? 0;
 
     const animista = ANIMISTA_ANIMATIONS[animation];
-    if (animista) return animista.frames(base, duration, delay, el);
+    if (animista) {
+        return animista.frames(base, duration, delay, el, easingOverride);
+    }
 
     const end = delay + duration;
     const px = 150;
+    const ease = easingOverride || 'power2.out';
 
     const toKeyframes = (from: Partial<AnimationKeyframe>, loop?: boolean): AnimationKeyframe[] => {
         const frames: AnimationKeyframe[] = [
-            kf(delay > 0 ? delay : 0, { ...base, ...from, opacity: from.opacity ?? 0 }),
-            kf(end, { ...base, opacity: base.opacity }),
+            kf(delay > 0 ? delay : 0, { ...base, ...from, opacity: from.opacity ?? 0, easing: ease }),
+            kf(end, { ...base, opacity: base.opacity, easing: ease }),
         ];
         if (loop && frames.length >= 2) {
             const last = frames[frames.length - 1];
-            frames.push(kf(end + duration / 2, { ...base, ...from, opacity: from.opacity ?? 0 }));
-            frames.push({ ...last, id: uid(), time: end + duration });
+            frames.push(kf(end + duration / 2, { ...base, ...from, opacity: from.opacity ?? 0, easing: ease }));
+            frames.push({ ...last, id: uid(), time: end + duration, easing: ease });
         }
         return frames;
     };
@@ -97,8 +104,8 @@ export const presetToKeyframes = (
         case 'fadeIn': return toKeyframes({ opacity: 0 });
         case 'fadeOut':
             return [
-                kf(delay, { ...base, opacity: base.opacity }),
-                kf(end, { ...base, opacity: 0 }),
+                kf(delay, { ...base, opacity: base.opacity, easing: ease }),
+                kf(end, { ...base, opacity: 0, easing: ease }),
             ];
         case 'fadeInOut':
             return toKeyframes({ opacity: 0 }, true);
@@ -106,20 +113,20 @@ export const presetToKeyframes = (
         case 'zoomOut': return toKeyframes({ scaleX: 1.6, scaleY: 1.6 });
         case 'pulse':
             return [
-                kf(0, { ...base }),
-                kf(duration / 2, { ...base, scaleX: 1.12, scaleY: 1.12 }),
-                kf(duration, { ...base }),
+                kf(0, { ...base, easing: ease }),
+                kf(duration / 2, { ...base, scaleX: 1.12, scaleY: 1.12, easing: ease }),
+                kf(duration, { ...base, easing: ease }),
             ];
         case 'spin':
         case 'rotate360':
             return [
-                kf(0, { ...base, rotation: base.rotation - 360, opacity: 0 }),
-                kf(end, { ...base }),
+                kf(0, { ...base, rotation: base.rotation - 360, opacity: 0, easing: ease }),
+                kf(end, { ...base, easing: ease }),
             ];
         case 'flip':
             return [
-                kf(0, { ...base, scaleX: 0.1, opacity: 0 }),
-                kf(end, { ...base }),
+                kf(0, { ...base, scaleX: 0.1, opacity: 0, easing: ease }),
+                kf(end, { ...base, easing: ease }),
             ];
         case 'shake':
             return [
@@ -131,26 +138,26 @@ export const presetToKeyframes = (
             ];
         case 'skew':
             return [
-                kf(0, { ...base, scaleX: 0.9, scaleY: 0.9, opacity: 0 }),
-                kf(end, { ...base }),
+                kf(0, { ...base, scaleX: 0.9, scaleY: 0.9, opacity: 0, easing: ease }),
+                kf(end, { ...base, easing: ease }),
             ];
         case 'float':
             return [
-                kf(0, { ...base }),
-                kf(duration / 2, { ...base, y: base.y - 15 }),
-                kf(duration, { ...base }),
+                kf(0, { ...base, easing: 'sine.inOut' }),
+                kf(duration / 2, { ...base, y: base.y - 15, easing: 'sine.inOut' }),
+                kf(duration, { ...base, easing: 'sine.inOut' }),
             ];
         case 'bounce':
             return [
-                kf(0, { ...base }),
-                kf(duration / 2, { ...base, y: base.y - 20 }),
-                kf(duration, { ...base }),
+                kf(0, { ...base, easing: 'bounce.out' }),
+                kf(duration / 2, { ...base, y: base.y - 20, easing: 'bounce.out' }),
+                kf(duration, { ...base, easing: 'bounce.out' }),
             ];
         case 'swing':
             return [
-                kf(0, { ...base }),
-                kf(duration / 2, { ...base, rotation: base.rotation + 12 }),
-                kf(duration, { ...base }),
+                kf(0, { ...base, easing: 'sine.inOut' }),
+                kf(duration / 2, { ...base, rotation: base.rotation + 12, easing: 'sine.inOut' }),
+                kf(duration, { ...base, easing: 'sine.inOut' }),
             ];
         case 'continuousSlideX':
             return [
@@ -175,21 +182,35 @@ export const presetToKeyframes = (
  * `totalDuration` bounds how far a `loop`ed timed block repeats.
  */
 export const getElementKeyframes = (el: DesignElement, totalDuration?: number): AnimationKeyframe[] => {
-    const enter = el.enterAnimation
-        ? presetToKeyframes(el, el.enterAnimation, el.enterDelay || 0)
+    // If manual keyframes exist
+    if (el.anim && el.anim.keyframes.length > 0) {
+        if (el.enterAnimation && el.enterAnimation !== 'none') {
+            const enter = presetToKeyframes(el, el.enterAnimation, el.enterDelay || 0);
+            const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
+            const shifted = el.anim.keyframes.map((f) => ({ ...f, id: uid(), time: f.time + enterEnd }));
+            return [...enter, ...shifted].sort((a, b) => a.time - b.time);
+        }
+        return el.anim.keyframes;
+    }
+
+    const enterPreset = el.enterAnimation || el.animation || 'none';
+    const enter = enterPreset !== 'none'
+        ? presetToKeyframes(el, enterPreset, el.enterDelay || el.animationDelay || 0)
         : [];
     const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
 
-    const main = el.anim && el.anim.keyframes.length > 0 ? el.anim.keyframes : presetToKeyframes(el);
+    // Only chain main if it's explicitly distinct from enterAnimation
+    const hasDistinctMain = el.enterAnimation && el.animation && el.animation !== 'none' && el.animation !== el.enterAnimation;
+    const main = hasDistinctMain ? presetToKeyframes(el, el.animation) : [];
     const mainFrames = enterEnd > 0
         ? main.map((f) => ({ ...f, id: uid(), time: f.time + enterEnd }))
         : main;
-    const mainEnd = mainFrames.length > 0 ? Math.max(...mainFrames.map((f) => f.time)) : 0;
+    const mainEnd = mainFrames.length > 0 ? Math.max(...mainFrames.map((f) => f.time)) : enterEnd;
 
     const blocks = (el.animations || [])
         .filter((b) => b.preset && b.preset !== 'none')
         .map((b) => {
-            const pattern = presetToKeyframes(el, b.preset, 0, b.duration).map((f) => ({
+            const pattern = presetToKeyframes(el, b.preset, 0, b.duration, b.ease).map((f) => ({
                 ...f,
                 id: uid(),
                 time: f.time + b.start + (b.delay || 0),
@@ -211,7 +232,7 @@ export const getElementKeyframes = (el: DesignElement, totalDuration?: number): 
         })
         .flat();
 
-    const exit = el.exitAnimation
+    const exit = el.exitAnimation && el.exitAnimation !== 'none'
         ? presetToKeyframes(el, el.exitAnimation, 0).map((f) => ({
             ...f,
             id: uid(),
@@ -235,17 +256,21 @@ export interface ElementAnimationSegment {
 export const getElementAnimationSegments = (el: DesignElement): ElementAnimationSegment[] => {
     const segments: ElementAnimationSegment[] = [];
 
-    const enter = el.enterAnimation
-        ? presetToKeyframes(el, el.enterAnimation, el.enterDelay || 0)
+    const enterPreset = el.enterAnimation || el.animation || 'none';
+    const enter = enterPreset !== 'none'
+        ? presetToKeyframes(el, enterPreset, el.enterDelay || el.animationDelay || 0)
         : [];
     const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
 
-    const main = el.anim && el.anim.keyframes.length > 0 ? el.anim.keyframes : presetToKeyframes(el);
+    const hasDistinctMain = el.enterAnimation && el.animation && el.animation !== 'none' && el.animation !== el.enterAnimation;
+    const main = hasDistinctMain
+        ? (el.anim && el.anim.keyframes.length > 0 ? el.anim.keyframes : presetToKeyframes(el, el.animation))
+        : [];
     const mainEnd = main.length > 0 ? Math.max(...main.map((f) => f.time)) : 0;
 
     if (enter.length > 0) {
         const s = Math.min(...enter.map((f) => f.time));
-        segments.push({ id: 'enter', start: s, end: enterEnd, label: 'Entrance', color: '#f59e0b' });
+        segments.push({ id: 'enter', start: s, end: enterEnd, label: animationLabel(enterPreset), color: '#f59e0b' });
     }
     if (main.length > 0) {
         segments.push({ id: 'main', start: enterEnd, end: enterEnd + mainEnd, label: 'Main', color: '#3b82f6' });
@@ -261,11 +286,11 @@ export const getElementAnimationSegments = (el: DesignElement): ElementAnimation
                 color: '#8b5cf6',
             });
         });
-    if (el.exitAnimation) {
+    if (el.exitAnimation && el.exitAnimation !== 'none') {
         const exit = presetToKeyframes(el, el.exitAnimation, 0);
         const exitDur = exit.length > 0 ? Math.max(...exit.map((f) => f.time)) : 1;
-        const s = mainEnd + (el.exitDelay || 0);
-        segments.push({ id: 'exit', start: s, end: s + exitDur, label: 'Exit', color: '#ef4444' });
+        const s = (main.length > 0 ? enterEnd + mainEnd : enterEnd) + (el.exitDelay || 0);
+        segments.push({ id: 'exit', start: s, end: s + exitDur, label: animationLabel(el.exitAnimation), color: '#ef4444' });
     }
     return segments;
 };
@@ -296,19 +321,37 @@ export const getElementAnimationDuration = (el: DesignElement): number => {
     return enterEnd + mainEnd;
 };
 
-/** Applies staggered delays to elements based on their layer order (bottom to top). */
+export type StaggerOrder = 'bottomToTop' | 'topToBottom' | 'centerOut' | 'random';
+
+/** Applies staggered delays to elements based on chosen ordering. */
 export const applyStaggeredDelays = (
     elements: DesignElement[],
     gap: number = 0.2,
-    useEnterDelay: boolean = true
+    useEnterDelay: boolean = true,
+    order: StaggerOrder = 'bottomToTop',
 ): Partial<DesignElement>[] => {
-    const sorted = [...elements].sort((a, b) => elements.indexOf(a) - elements.indexOf(b));
+    let sorted = [...elements];
+    if (order === 'bottomToTop') {
+        sorted.sort((a, b) => elements.indexOf(a) - elements.indexOf(b));
+    } else if (order === 'topToBottom') {
+        sorted.sort((a, b) => elements.indexOf(b) - elements.indexOf(a));
+    } else if (order === 'centerOut') {
+        const mid = Math.floor(elements.length / 2);
+        sorted.sort((a, b) => {
+            const da = Math.abs(elements.indexOf(a) - mid);
+            const db = Math.abs(elements.indexOf(b) - mid);
+            return da - db;
+        });
+    } else if (order === 'random') {
+        sorted = [...elements].sort(() => Math.random() - 0.5);
+    }
+
     let currentTime = 0;
 
     return sorted.map((el) => {
-        const duration = getElementAnimationDuration(el);
-        const delay = currentTime;
-        currentTime += duration + gap;
+        const duration = getElementAnimationDuration(el) || 0.6;
+        const delay = Math.round(currentTime * 100) / 100;
+        currentTime += Math.min(duration, 0.8) + gap;
 
         if (useEnterDelay) {
             return { id: el.id, enterDelay: delay };
