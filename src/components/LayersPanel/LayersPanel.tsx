@@ -67,7 +67,7 @@ export const LayersPanel: React.FC = () => {
           <div
             key={el.id}
             onClick={() => selectElement(el.id)}
-            className={`group flex items-center gap-2 px-2 py-1.5 rounded-lg mb-1 cursor-pointer transition-colors ${selectedId === el.id ? 'bg-red-500/10 ring-1 ring-red-500/30' : 'hover:bg-[#1e1e26]'
+            className={`group flex items-center gap-2 px-2 py-1.5 rounded-lg mb-1 cursor-pointer transition-colors ${selectedId === el.id ? 'bg-red-500/10 ring-1 ring-red-500/30' : ''
               } ${el.visible === false ? 'opacity-40' : ''}`}
           >
             <span className="text-gray-500 shrink-0">{typeIcon(el.type)}</span>
@@ -96,42 +96,42 @@ export const LayersPanel: React.FC = () => {
             <div className="flex items-center gap-0.5 shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); reorderElement(el.id, 'up'); }}
-                className="p-1 text-gray-500 hover:text-red-500 rounded"
+                className="p-1 text-gray-500  rounded"
                 title="Bring forward"
               >
                 <ArrowUp size={12} />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); reorderElement(el.id, 'down'); }}
-                className="p-1 text-gray-500 hover:text-red-500 rounded"
+                className="p-1 text-gray-500  rounded"
                 title="Send backward"
               >
                 <ArrowDown size={12} />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); toggleVisibility(el.id); }}
-                className={`p-1 rounded ${el.visible === false ? 'text-gray-500' : 'text-gray-500 hover:text-gray-300'}`}
+                className={`p-1 rounded ${el.visible === false ? 'text-gray-500' : 'text-gray-500 '}`}
                 title="Toggle visibility"
               >
                 {el.visible === false ? <EyeOff size={12} /> : <Eye size={12} />}
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); toggleLock(el.id); }}
-                className={`p-1 rounded ${el.locked ? 'text-red-400' : 'text-gray-500 hover:text-gray-300'}`}
+                className={`p-1 rounded ${el.locked ? 'text-red-400' : 'text-gray-500 '}`}
                 title="Toggle lock"
               >
                 {el.locked ? <Lock size={12} /> : <Unlock size={12} />}
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); duplicateElement(el.id); }}
-                className="p-1 text-gray-500 hover:text-red-500 rounded"
+                className="p-1 text-gray-500  rounded"
                 title="Duplicate"
               >
                 <Copy size={12} />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); removeElement(el.id); }}
-                className="p-1 text-gray-500 hover:text-red-500 rounded"
+                className="p-1 text-gray-500  rounded"
                 title="Delete"
               >
                 <Trash2 size={12} />

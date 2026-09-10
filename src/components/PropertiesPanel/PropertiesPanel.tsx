@@ -1,11 +1,11 @@
 import React, { useRef } from 'react';
 import { useDesignStore } from '../../store/designStore';
 import { EASINGS } from '../../utils/keyframes';
-import { animationLabel, getAnimationOptionGroups } from '../../utils/animations';
+
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
     AlignLeft, AlignCenter, AlignRight,
-    Bold, Italic, Underline, Link as LinkIcon, Type, List, Plus, Trash2, Sparkles,
+    Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles,
 } from 'lucide-react';
 
 export const PropertiesPanel: React.FC = () => {
@@ -31,9 +31,6 @@ export const PropertiesPanel: React.FC = () => {
         totalDuration,
         loop,
         setLoop,
-        addElementAnimation,
-        updateElementAnimation,
-        removeElementAnimation,
     } = useDesignStore();
 
         const isiTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -624,7 +621,14 @@ return (
                                         value={selectedElement.lineHeight || 1.2}
                                         onChange={(e) => handleChange('lineHeight', Number(e.target.value))}
                                         className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                               {/* Animation Controls */}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Animation Controls */}
                 <div className="space-y-3.5 border-t border-[#232330] pt-4">
                     <div className="flex items-center justify-between">
                         <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Animation</label>
@@ -643,7 +647,7 @@ return (
                         <label className="text-xs text-gray-400 mb-1 block">Entrance (In)</label>
                         <div className="flex items-center gap-2">
                             <select
-                                value={selectedElement.enterAnimation || selectedElement.animation || 'none'}
+                                value={(selectedElement as typeof selectedElement & { enterAnimation?: string }).enterAnimation || selectedElement.animation || 'none'}
                                 onChange={(e) => {
                                     handleChange('enterAnimation', e.target.value);
                                     handleChange('animation', e.target.value);
@@ -709,7 +713,7 @@ return (
                                 type="number"
                                 step="0.1"
                                 min="0"
-                                value={selectedElement.enterDelay ?? selectedElement.animationDelay ?? 0}
+                                value={(selectedElement as any).enterDelay ?? selectedElement.animationDelay ?? 0}
                                 onChange={(e) => {
                                     const val = Number(e.target.value);
                                     handleChange('enterDelay', val);
@@ -728,7 +732,7 @@ return (
                         </div>
                         <div className="flex items-center gap-2">
                             <select
-                                value={selectedElement.exitAnimation || 'none'}
+                                value={(selectedElement as any).exitAnimation || 'none'}
                                 onChange={(e) => handleChange('exitAnimation', e.target.value)}
                                 className="flex-1 border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
                             >
@@ -742,13 +746,13 @@ return (
                                 <option value="rotateOut">Rotate Out</option>
                             </select>
 
-                            {selectedElement.exitAnimation && selectedElement.exitAnimation !== 'none' && (
+                            {(selectedElement as any).exitAnimation && (selectedElement as any).exitAnimation !== 'none' && (
                                 <input
                                     type="number"
                                     step="0.1"
                                     min="0"
                                     placeholder="Exit at (s)"
-                                    value={selectedElement.exitDelay || 0}
+                                    value={(selectedElement as any).exitDelay || 0}
                                     onChange={(e) => handleChange('exitDelay', Number(e.target.value))}
                                     className="w-16 border border-[#2a2a35] rounded-lg px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100 font-mono text-center shrink-0"
                                     title="Exit start delay in seconds"
@@ -767,10 +771,10 @@ return (
                             <span>Sequence & Stagger All Layers</span>
                         </button>
                     </div>
-                </div>   </div>
+                </div>
 
                 {/* Shadow */}
-                {(selectedElement.type === 'rect' || selectedElement.type === 'circle' || selectedElement.type === 'text') && (
+                {((selectedElement.type as string) === 'rect' || (selectedElement.type as string) === 'text') && (
                     <div className="space-y-4 border-t border-[#232330] pt-4 pb-2">
                         <label className="text-xs font-medium text-gray-400 uppercase">Shadow</label>
                         <div className="space-y-3">
@@ -819,53 +823,10 @@ return (
                     </div>
                 )}
 
-                {/* Hover Effects */}
-                <div className="space-y-3 border-t border-[#232330] pt-4">
-                    <label className="text-xs font-medium text-gray-400 uppercase">Hover Effects</label>
-                    <div className="space-y-3">
-                        <div>
-                            <label className="text-xs text-gray-400 mb-1 block">Effect Type</label>
-                            <select
-                                value={selectedElement.hoverAnimation || 'none'}
-                                onChange={(e) => handleChange('hoverAnimation', e.target.value)}
-                                className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                            >
-                                <option value="none">None</option>
-                                <option value="colorChange">Color Transition</option>
-                                <option value="glow">Glow Effect</option>
-                                <option value="shadowPop">Shadow Pop</option>
-                                {selectedElement.type === 'text' && (
-                                    <option value="letterSpacing">Letter Spacing</option>
-                                )}
-                                <option value="scale">Scale Up</option>
-                            </select>
-                        </div>
-
-                        {(selectedElement.hoverAnimation === 'colorChange' || selectedElement.hoverAnimation === 'glow') && (
-                            <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Hover Color</label>
-                                <div className="flex gap-2">
-                                    <input
-                                        type="color"
-                                        value={selectedElement.hoverColor || '#3b82f6'}
-                                        onChange={(e) => handleChange('hoverColor', e.target.value)}
-                                        className="h-8 w-8 rounded border border-[#2a2a35] cursor-pointer"
-                                    />
-                                    <input
-                                        type="text"
-                                        value={selectedElement.hoverColor || '#3b82f6'}
-                                        onChange={(e) => handleChange('hoverColor', e.target.value)}
-                                        className="flex-1 border border-[#2a2a35] rounded px-2 py-1 text-sm focus:border-red-500 focus:outline-none uppercase bg-[#1a1a21] text-gray-100"
-                                        placeholder="#000000"
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
+           
 
                 {/* HTML Content Editor */}
-                {selectedElement.type === 'html' && (
+                {(selectedElement.type as string) === 'html' && (
                     <div className="space-y-4 border-t border-[#232330] pt-4 pb-6">
                         <div className="flex items-center justify-between">
                             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">HTML Content</label>
@@ -887,7 +848,7 @@ return (
                 )}
 
                 {/* ISI Scroll Controls */}
-                {selectedElement.type === 'isiScroll' && (
+                {(selectedElement.type as string) === 'isiScroll' && (
                     <div className="space-y-4 border-t border-[#232330] pt-4 pb-6">
                         <div className="flex items-center justify-between">
                             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">ISI Pro Suite</label>
@@ -1491,6 +1452,7 @@ return (
                     </div>
                 )}
             </div>
-        </div >
+        </div>
+  
     );
 };

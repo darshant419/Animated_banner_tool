@@ -75,7 +75,6 @@ export const Timeline: React.FC = () => {
   } | null>(null);
 
   const lastTimeRef = useRef<number>(0);
-  const frameCountRef = useRef<number>(0);
 
   const trackWidth = Math.max(800, totalDuration * pps + 120);
 
@@ -84,7 +83,6 @@ export const Timeline: React.FC = () => {
     if (!isPlaying) return;
     let raf: number;
     lastTimeRef.current = performance.now();
-    frameCountRef.current = 0;
     const tick = (now: number) => {
       if (!previewPaused) {
         const dt = (now - lastTimeRef.current) / 1000;
@@ -98,10 +96,7 @@ export const Timeline: React.FC = () => {
             setIsPlaying(false);
           }
         } else {
-          frameCountRef.current++;
-          if (frameCountRef.current % 2 === 0) {
-            setPlayheadTime(next);
-          }
+          setPlayheadTime(next);
         }
       } else {
         lastTimeRef.current = now;

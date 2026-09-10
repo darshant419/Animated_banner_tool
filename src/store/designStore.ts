@@ -27,6 +27,18 @@ export interface ElementAnimation {
     loop?: boolean;
 }
 
+/** A preset animation block playing inside its own timeframe on the global timeline. */
+export interface ElementTimedAnimation {
+    id: string;
+    preset: string;
+    /** Start time on the global timeline, in seconds */
+    start: number;
+    duration: number;
+    delay?: number;
+    ease?: string;
+    loop?: boolean;
+}
+
 export interface Artboard {
     id: string;
     label: string;
@@ -142,26 +154,6 @@ export interface SelectedKeyframe {
     keyframeId: string;
 }
 
-/**
- * A timed animation block on an element. Unlike the single main `animation`
- * (which starts at 0), each block plays its preset inside its own timeframe,
- * letting one element run several animations (e.g. fade in at 0s, fade out at 5s).
- */
-export interface ElementTimedAnimation {
-    id: string;
-    /** Preset animation id (Animista catalog or legacy name). */
-    preset: string;
-    /** Absolute start time (seconds) within the timeline. */
-    start: number;
-    /** Duration of the animation (seconds). */
-    duration: number;
-    /** Extra delay inside the block (seconds). */
-    delay?: number;
-    /** Easing for this block (GSAP ease id, e.g. "power2.out"). */
-    ease?: string;
-    /** Repeat the block until the end of the timeline. */
-    loop?: boolean;
-}
 
 interface HistoryState {
     elements: DesignElement[];
@@ -220,11 +212,6 @@ interface DesignState {
     setPreviewPaused: (paused: boolean) => void;
     setTotalDuration: (duration: number) => void;
     setLoop: (loop: boolean) => void;
-
-    // Timed animation block actions
-    addElementAnimation: (elementId: string, block: ElementTimedAnimation) => void;
-    updateElementAnimation: (elementId: string, blockId: string, updates: Partial<ElementTimedAnimation>) => void;
-    removeElementAnimation: (elementId: string, blockId: string) => void;
 
     // Artboards
     addArtboard: (width: number, height: number, label?: string) => void;
@@ -317,7 +304,6 @@ const cloneElementsForBoard = (elements: DesignElement[], boardId: string): Desi
                 keyframes: el.anim.keyframes.map((k) => ({ ...k, id: `${k.id}${suffix}` })),
             }
             : undefined,
-        animations: el.animations?.map((b) => ({ ...b, id: `${b.id}${suffix}` })),
     }));
 };
 
@@ -453,6 +439,10 @@ export const useDesignStore = create<DesignState>((set) => ({
                         })),
                     }
                     : undefined,
+                animations: el.animations?.map((b) => ({
+                    ...b,
+                    id: `${b.id}-copy-${Math.floor(Math.random() * 1e4)}`,
+                })),
             };
             return {
                 ...saveHistory(state),
@@ -515,7 +505,7 @@ export const useDesignStore = create<DesignState>((set) => ({
 
     addKeyframe: (elementId, keyframe) =>
         set((state) => ({
-            ...saveHistory(state),
+                        ...saveHistory(state),
             elements: state.elements.map((el) => {
                 if (el.id !== elementId) return el;
                 const anim = el.anim || { keyframes: [] };
@@ -524,7 +514,7 @@ export const useDesignStore = create<DesignState>((set) => ({
                 );
                 return {
                     ...el,
-                    // When user manually adds keyframes, clear all preset animation fields
+                    // When user manually adds keyframes, clear preset animation fields
                     // to avoid conflicting/duplicate animations.
                     enterAnimation: undefined,
                     enterDelay: undefined,
@@ -609,56 +599,7 @@ export const useDesignStore = create<DesignState>((set) => ({
 
     selectKeyframe: (selection) => set({ selectedKeyframe: selection }),
 
-    addElementAnimation: (elementId, block) =>
-        set((state) => ({
-            ...saveHistory(state),
-            ...withActiveElements(
-                state,
-                state.elements.map((el) =>
-                    el.id === elementId
-                        ? { ...el, anim: undefined, animations: [...(el.animations || []), block] }
-                        : el
-                )
-            ),
-            totalDuration: Math.max(
-                state.totalDuration,
-                Math.ceil((block.start + block.duration) * 2) / 2
-            ),
-        })),
-
-    updateElementAnimation: (elementId, blockId, updates) =>
-        set((state) => ({
-            ...saveHistory(state),
-            ...withActiveElements(
-                state,
-                state.elements.map((el) =>
-                    el.id === elementId
-                        ? {
-                            ...el,
-                            anim: undefined,
-                            animations: (el.animations || []).map((b) =>
-                                b.id === blockId ? { ...b, ...updates } : b
-                            ),
-                        }
-                        : el
-                )
-            ),
-        })),
-
-    removeElementAnimation: (elementId, blockId) =>
-        set((state) => ({
-            ...saveHistory(state),
-            ...withActiveElements(
-                state,
-                state.elements.map((el) =>
-                    el.id === elementId
-                        ? { ...el, animations: (el.animations || []).filter((b) => b.id !== blockId) }
-                        : el
-                )
-            ),
-        })),
-
-    setPlayheadTime: (time) => set((state) => ({
+        setPlayheadTime: (time) => set((state) => ({
         playheadTime: Math.max(0, Math.min(time, state.totalDuration)),
     })),
 

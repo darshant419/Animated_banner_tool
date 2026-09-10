@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Toolbar, type ToolType } from '../Toolbar/Toolbar';
 import { PropertiesPanel } from '../PropertiesPanel/PropertiesPanel';
 import { DesignCanvas } from '../Canvas/DesignCanvas';
-import { Layout, Layers, Undo2, Redo2, RefreshCcw, Play, Pause, Plus, Download, FileCode2, ChevronDown, Sparkles } from 'lucide-react';
+import { Layout, Layers, Undo2, Redo2, RefreshCcw, Play, Pause, Plus, Download, FileCode2, ChevronDown } from 'lucide-react';
 import { useDesignStore, getArtboardPresets } from '../../store/designStore';
 import { VariationsPanel } from '../Variations/VariationsPanel';
 import { TemplatesPanel } from '../TemplatesPanel/TemplatesPanel';
@@ -337,6 +337,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                 onClose={() => setIsAnimationStudioOpen(false)}
                 initialTab={animationStudioTab}
             />
+
         </div>
     );
 };

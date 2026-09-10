@@ -169,6 +169,51 @@ export const presetToKeyframes = (
                 kf(0, { ...base }),
                 kf(duration, { ...base, y: base.y + 100 }),
             ];
+        // ---- Aliases for the Properties Panel dropdown ids ----
+        case 'fadeInTop':
+            return toKeyframes({ x: base.x, y: base.y - px });
+        case 'fadeInBottom':
+            return toKeyframes({ x: base.x, y: base.y + px });
+        case 'scaleInCenter':
+            return toKeyframes({ scaleX: 0.1, scaleY: 0.1 });
+        case 'scaleInTop':
+            return toKeyframes({ scaleX: 0.1, scaleY: 0.1, y: base.y - px });
+        case 'scaleInBottom':
+            return toKeyframes({ scaleX: 0.1, scaleY: 0.1, y: base.y + px });
+        case 'rotateIn':
+            return toKeyframes({ rotation: base.rotation - 180, scaleX: 0.6, scaleY: 0.6 });
+        case 'flipInHorTop':
+            return toKeyframes({ scaleY: 0.1, y: base.y - 40 });
+        case 'flipInHorBottom':
+            return toKeyframes({ scaleY: 0.1, y: base.y + 40 });
+        case 'blurIn':
+            return toKeyframes({ blur: 20 });
+        // ---- Exit aliases (reverse direction: rest state -> hidden state) ----
+        case 'slideOutTop':
+            return [
+                kf(delay, { ...base, easing: ease }),
+                kf(end, { ...base, y: base.y - px, opacity: 0, easing: ease }),
+            ];
+        case 'slideOutBottom':
+            return [
+                kf(delay, { ...base, easing: ease }),
+                kf(end, { ...base, y: base.y + px, opacity: 0, easing: ease }),
+            ];
+        case 'slideOutLeft':
+            return [
+                kf(delay, { ...base, easing: ease }),
+                kf(end, { ...base, x: base.x - px, opacity: 0, easing: ease }),
+            ];
+        case 'slideOutRight':
+            return [
+                kf(delay, { ...base, easing: ease }),
+                kf(end, { ...base, x: base.x + px, opacity: 0, easing: ease }),
+            ];
+        case 'rotateOut':
+            return [
+                kf(delay, { ...base, easing: ease }),
+                kf(end, { ...base, rotation: base.rotation + 360, opacity: 0, easing: ease }),
+            ];
         default:
             return [];
     }
@@ -256,6 +301,7 @@ export interface ElementAnimationSegment {
 export const getElementAnimationSegments = (el: DesignElement): ElementAnimationSegment[] => {
     const segments: ElementAnimationSegment[] = [];
 
+    const hasExplicitEnter = !!el.enterAnimation && el.enterAnimation !== 'none';
     const enterPreset = el.enterAnimation || el.animation || 'none';
     const enter = enterPreset !== 'none'
         ? presetToKeyframes(el, enterPreset, el.enterDelay || el.animationDelay || 0)
@@ -270,10 +316,18 @@ export const getElementAnimationSegments = (el: DesignElement): ElementAnimation
 
     if (enter.length > 0) {
         const s = Math.min(...enter.map((f) => f.time));
-        segments.push({ id: 'enter', start: s, end: enterEnd, label: animationLabel(enterPreset), color: '#f59e0b' });
+        // A lone preset on `animation` is the element's main animation;
+        // only an explicit `enterAnimation` renders as an entrance segment.
+        segments.push({
+            id: hasExplicitEnter ? 'enter' : 'main',
+            start: s,
+            end: enterEnd,
+            label: animationLabel(enterPreset),
+            color: hasExplicitEnter ? '#f59e0b' : '#3b82f6',
+        });
     }
     if (main.length > 0) {
-        segments.push({ id: 'main', start: enterEnd, end: enterEnd + mainEnd, label: 'Main', color: '#3b82f6' });
+        segments.push({ id: hasExplicitEnter ? 'main' : 'loop', start: enterEnd, end: enterEnd + mainEnd, label: 'Main', color: '#3b82f6' });
     }
     (el.animations || [])
         .filter((b) => b.preset && b.preset !== 'none')
