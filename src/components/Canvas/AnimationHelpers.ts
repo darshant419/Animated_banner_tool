@@ -3,6 +3,20 @@ import Konva from 'konva';
 import type { DesignElement, AnimationKeyframe } from '../../store/designStore';
 import { getElementBaseState, getElementKeyframes, presetToKeyframes } from '../../utils/keyframes';
 
+// Registry of per-board master-timeline seek callbacks so the Timeline can drive
+// every visible artboard's canvas at 60fps without forcing a global store update
+// on every animation frame (which made playback feel jerky).
+const masterSeekers = new Map<string, (time: number) => void>();
+export const registerMasterSeeker = (id: string, seek: (time: number) => void) => {
+    masterSeekers.set(id, seek);
+};
+export const unregisterMasterSeeker = (id: string) => {
+    masterSeekers.delete(id);
+};
+export const seekAllMasters = (time: number) => {
+    masterSeekers.forEach((seek) => seek(time));
+};
+
 
 export interface BuiltElementTimeline {
     timeline: gsap.core.Timeline;
@@ -20,33 +34,82 @@ export const buildElementTimeline = (
     customFrames?: AnimationKeyframe[],
 ): BuiltElementTimeline => {
     const base = getElementBaseState(el);
-    const frames = customFrames || getElementKeyframes(el, totalDuration);
+    // Empty array + undefined both mean "no keyframes": settle the node at its
+    // resting base state instead of playing stale/phantom tweens.
+    const frames = customFrames && customFrames.length > 0 ? customFrames : getElementKeyframes(el, totalDuration);
 
     const blurProxy = { val: base.blur || 0 };
 
     const timeline = gsap.timeline({
+        defaults: { overwrite: 'auto' },
+        smoothChildTiming: true,
         onUpdate: () => {
             node.getLayer()?.batchDraw();
         },
     });
 
-    timeline.set(node, {
+    const baseStateVars = {
         x: base.x,
         y: base.y,
         opacity: (base.opacity ?? 100) / 100,
         rotation: base.rotation || 0,
         scaleX: base.scaleX || 1,
         scaleY: base.scaleY || 1,
-    }, 0);
+    };
+
+    // If the animation starts from a hidden/offset state (e.g. an entrance with a
+    // delay), hold that pre-animation state from t=0 so the element stays hidden
+    // until its entrance actually begins. Otherwise the element would show its
+    // resting state first and then replay the entrance at the delay time.
+    const first = frames[0];
+    const restingOpacity = (base.opacity ?? 100) / 100;
+    const firstOpacity = first && first.opacity !== undefined ? first.opacity / 100 : restingOpacity;
+    const startsHidden = firstOpacity < 0.02;
+    const preHidden = first && startsHidden && first.time > 0.05;
+    const initial = first
+        ? {
+            x: first.x ?? base.x,
+            y: first.y ?? base.y,
+            opacity: startsHidden ? 0 : (first.opacity ?? base.opacity ?? 100) / 100,
+            rotation: first.rotation ?? base.rotation ?? 0,
+            scaleX: first.scaleX ?? base.scaleX ?? 1,
+            scaleY: first.scaleY ?? base.scaleY ?? 1,
+        }
+        : baseStateVars;
+
+    // Full pre-hidden span for delayed entrances: when the entrance starts at
+    // delay > 0 with a hidden/offset state, hold that state from t=0
+    // (fill backwards) so the element never flashes its resting state
+    // first and then replays the entrance -- that flash+replay was the
+    // reported "animation happens twice" bug.
+    if (preHidden) {
+        timeline.set(node, { ...initial, immediateRender: true }, 0);
+        timeline.to(node, { ...initial, duration: first.time, ease: 'none' }, 0);
+    } else {
+        timeline.set(node, initial, 0);
+    }
 
     let cursor = 0;
-    for (const kf of frames) {
+    for (let i = 0; i < frames.length; i++) {
+        const kf = frames[i];
+        // When the pre-hidden hold tween already covers 0 -> first.time holding
+        // the exact same state, skip the redundant (identical) first tween.
+        if (i === 0 && preHidden) {
+            cursor = kf.time;
+            continue;
+        }
         const dur = Math.max(0.01, kf.time - cursor);
         const ease = kf.easing || 'power1.inOut';
 
+        // NOTE: no `overwrite` here on purpose. The master timeline is driven by
+        // seek(), so every tween renders on scrub/loop; `overwrite: true` would
+        // permanently kill sibling tweens of the node the first time they init,
+        // leaving nothing to animate on the next loop/scrub. The timeline
+        // default `overwrite: 'auto'` already resolves any real overlap.
         const vars: Record<string, unknown> = {
             duration: dur,
             ease,
+            immediateRender: false,
         };
         if (kf.x !== undefined) vars.x = kf.x;
         if (kf.y !== undefined) vars.y = kf.y;

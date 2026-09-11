@@ -132,15 +132,32 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
     // setPreviewPaused only sets the pause (never clears) so other ISI instances
     // not being hovered don't cancel the existing hover-pause.
     useEffect(() => {
-        if (isAnimating && isHovered) setPreviewPaused(true);
+        if (isAnimating && isHovered) {
+            setPreviewPaused(true);
+            hoverPausedRef.current = true;
+        }
     }, [isAnimating, isHovered, setPreviewPaused]);
 
     // If this board unmounts while it had hover-paused the timeline, release it.
     useEffect(() => {
         return () => {
-            if (hoverPausedRef.current) setPreviewPaused(false);
+            if (hoverPausedRef.current) {
+                setPreviewPaused(false);
+                hoverPausedRef.current = false;
+            }
         };
     }, [setPreviewPaused]);
+
+    // Clean up hover state when animation stops (prevents stuck hover state)
+    useEffect(() => {
+        if (!isAnimating && isHovered) {
+            setIsHovered(false);
+            if (hoverPausedRef.current) {
+                setPreviewPaused(false);
+                hoverPausedRef.current = false;
+            }
+        }
+    }, [isAnimating, isHovered, setPreviewPaused]);
 
     const hasHeader = Boolean(isiHeaderText);
     const effectiveHeaderHeight = hasHeader ? isiHeaderHeight : 0;
@@ -264,7 +281,8 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
             }}
             onMouseLeave={() => {
                 setIsHovered(false);
-                if (isAnimating && hoverPausedRef.current) {
+                // Always clean up pause state if we had paused it
+                if (hoverPausedRef.current) {
                     setPreviewPaused(false);
                     hoverPausedRef.current = false;
                 }

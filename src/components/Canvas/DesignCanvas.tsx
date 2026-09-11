@@ -10,7 +10,7 @@ import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
 import { ISIOverlay } from './ISIOverlay';
 import JSZip from 'jszip';
-import { buildMasterTimeline, previewElementOnCanvas, stopActivePreview } from './AnimationHelpers';
+import { buildMasterTimeline, previewElementOnCanvas, stopActivePreview, registerMasterSeeker, unregisterMasterSeeker } from './AnimationHelpers';
 import { getElementBaseState, getElementKeyframes } from '../../utils/keyframes';
 
 const URLImage = React.forwardRef<Konva.Image, any>(function URLImage({ image, ...props }, ref) {
@@ -145,7 +145,7 @@ const commonProps = {
           isiScrollSpeed={el.isiScrollSpeed}
           fontSize={el.fontSize}
           fill={el.fill}
-          hideText={!isPlaying}
+          hideText={true}
           isiLogoSrc={el.isiLogoSrc}
           isiLogoWidth={el.isiLogoWidth}
           isiLogoPosition={el.isiLogoPosition}
@@ -317,7 +317,13 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       false,
     );
     masterRef.current.seek(playheadTime, false);
+    // Let the Timeline drive this board's canvas at 60fps without a global store
+    // update on every frame (keeps playback smooth and panels from re-rendering).
+    registerMasterSeeker(board.id, (t) => {
+      masterRef.current?.seek(t, false);
+    });
     return () => {
+      unregisterMasterSeeker(board.id);
       masterRef.current?.kill();
       masterRef.current = null;
     };
@@ -329,6 +335,24 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       masterRef.current.seek(playheadTime, false);
     }
   }, [playheadTime]);
+
+  // When paused at the very start, show the designer base state so elements stay
+  // visible while editing (their entrance animation may begin hidden/offset at t=0).
+  useEffect(() => {
+    if (isPlaying || playheadTime !== 0) return;
+    elements.forEach((el) => {
+      const node = nodeRefs.current.get(el.id);
+      if (!node) return;
+      const b = getElementBaseState(el);
+      node.x(b.x);
+      node.y(b.y);
+      node.opacity((b.opacity ?? 100) / 100);
+      node.rotation(b.rotation || 0);
+      node.scaleX(b.scaleX || 1);
+      node.scaleY(b.scaleY || 1);
+    });
+    nodeRefs.current.forEach((n) => n.getLayer()?.batchDraw());
+  }, [isPlaying, playheadTime, elements]);
 
   // Live animation preview for selected element (triggered by Animation Studio Dialog)
   useEffect(() => {
@@ -507,9 +531,12 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
         </Layer>
       </Stage>
 
-      {!isPlaying && elements.some((el) => el.type === 'isiScroll') && (
+      {/* Rich HTML ISI content — always rendered (edit + preview) so the preview
+          matches the reference banner. During playback it becomes interactive:
+          hovering pauses the auto-scroll + master timeline like iScroll. */}
+      {elements.some((el) => el.type === 'isiScroll') && (
         elements.filter((el) => el.type === 'isiScroll').map((el) => (
-          <ISIOverlay key={el.id} element={el} isActive={true} />
+          <ISIOverlay key={el.id} element={el} isActive={true} isAnimating={isPlaying} />
         ))
       )}
 
@@ -904,7 +931,7 @@ export const DesignCanvas: React.FC = () => {
             if (k.scaleX !== undefined) transformStr += ' scaleX(' + k.scaleX + ')';
             if (k.scaleY !== undefined) transformStr += ' scaleY(' + k.scaleY + ')';
             transformStr += '';
-                                    parts.push('transform: ' + transformStr + ';');
+            parts.push('transform: ' + transformStr + ';');
             if (k.letterSpacing !== undefined) parts.push('letter-spacing: ' + k.letterSpacing + 'px;');
             if (k.blur !== undefined) parts.push('filter: blur(' + k.blur + 'px);');
             cssLines.push('  ' + pct + '% { ' + parts.join(' ') + ' }');
@@ -915,6 +942,14 @@ export const DesignCanvas: React.FC = () => {
           const delayMs = Math.round((kfs[0].time || 0) * 1000);
           const fullDurationMs = Math.round(totalDuration * 1000);
           const repeatStr = loopAnim ? ' infinite' : '';
+          // For delayed elements that start hidden, set initial opacity: 0 via CSS
+          // so they don't flash before the animation starts (prevents the
+          // "animation happens twice" bug). The animation will animate from
+          // opacity: 0 to the final state.
+          const needsInitialHidden = kfs[0].time > 0.05 && (kfs[0].opacity !== undefined && kfs[0].opacity / 100 < 0.02);
+          if (needsInitialHidden) {
+            cssLines.push('#' + id + ' { opacity: 0; }');
+          }
           timelineEvents.push(
             '      { time: ' + delayMs + ', action: () => {\n' +
             '        var el = document.getElementById("' + id + '");\n' +

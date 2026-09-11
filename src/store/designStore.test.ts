@@ -59,6 +59,80 @@ describe('designStore', () => {
         });
     });
 
+    describe('moveElement', () => {
+        it('moves an element to a specific final z-order index', () => {
+            const store = useDesignStore.getState();
+            store.addElement(textEl({ id: 'a' }));
+            store.addElement(textEl({ id: 'b' }));
+            store.addElement(textEl({ id: 'c' }));
+
+            // Move 'a' (index 0) to the end (top of the stack).
+            store.moveElement('a', 2);
+            expect(useDesignStore.getState().elements.map((el) => el.id)).toEqual(['b', 'c', 'a']);
+
+            // Move 'c' (index 2) to the front (bottom of the stack).
+            store.moveElement('c', 0);
+            expect(useDesignStore.getState().elements.map((el) => el.id)).toEqual(['c', 'b', 'a']);
+        });
+
+        it('moves within the middle of the stack', () => {
+            const store = useDesignStore.getState();
+            store.addElement(textEl({ id: 'a' }));
+            store.addElement(textEl({ id: 'b' }));
+            store.addElement(textEl({ id: 'c' }));
+            store.addElement(textEl({ id: 'd' }));
+
+            store.moveElement('b', 3); // b (index 1) → end
+            expect(useDesignStore.getState().elements.map((el) => el.id)).toEqual(['a', 'c', 'd', 'b']);
+
+            store.moveElement('d', 1); // d (index 3) → index 1
+            expect(useDesignStore.getState().elements.map((el) => el.id)).toEqual(['a', 'd', 'c', 'b']);
+        });
+
+        it('no-ops when already at the target index and clamps out-of-range targets', () => {
+            const store = useDesignStore.getState();
+            store.addElement(textEl({ id: 'a' }));
+            store.addElement(textEl({ id: 'b' }));
+            store.addElement(textEl({ id: 'c' }));
+
+            store.moveElement('b', 1); // already there
+            expect(useDesignStore.getState().elements.map((el) => el.id)).toEqual(['a', 'b', 'c']);
+
+            store.moveElement('b', 99); // clamp to last index
+            expect(useDesignStore.getState().elements.map((el) => el.id)).toEqual(['a', 'c', 'b']);
+
+            store.moveElement('c', -5); // clamp to first index
+            expect(useDesignStore.getState().elements.map((el) => el.id)).toEqual(['c', 'a', 'b']);
+        });
+
+        it('keeps the active artboard in sync with the new order', () => {
+            const store = useDesignStore.getState();
+            store.addElement(textEl({ id: 'a' }));
+            store.addElement(textEl({ id: 'b' }));
+            store.moveElement('a', 1);
+
+            const state = useDesignStore.getState();
+            const board = state.artboards.find((b) => b.id === state.activeArtboardId)!;
+            expect(board.elements.map((el) => el.id)).toEqual(['b', 'a']);
+        });
+
+        it('records a single undoable history entry', () => {
+            const store = useDesignStore.getState();
+            store.addElement(textEl({ id: 'a' }));
+            store.addElement(textEl({ id: 'b' }));
+            store.addElement(textEl({ id: 'c' }));
+            const pastBefore = useDesignStore.getState().past.length;
+
+            store.moveElement('a', 2);
+            const state = useDesignStore.getState();
+            expect(state.past.length).toBe(pastBefore + 1);
+            expect(state.elements.map((el) => el.id)).toEqual(['b', 'c', 'a']);
+
+            state.undo();
+            expect(useDesignStore.getState().elements.map((el) => el.id)).toEqual(['a', 'b', 'c']);
+        });
+    });
+
     describe('undo / redo', () => {
         it('restores the previous snapshot on undo and re-applies on redo', () => {
             const store = useDesignStore.getState();

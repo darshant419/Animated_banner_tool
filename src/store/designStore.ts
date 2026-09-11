@@ -199,6 +199,8 @@ interface DesignState {
     selectElement: (id: string | null) => void;
     removeElement: (id: string) => void;
     reorderElement: (id: string, type: 'up' | 'down' | 'top' | 'bottom') => void;
+    /** Move an element to a specific z-order index (final position in the elements array). */
+    moveElement: (id: string, toIndex: number) => void;
     toggleVisibility: (id: string) => void;
     toggleLock: (id: string) => void;
 
@@ -480,6 +482,18 @@ export const useDesignStore = create<DesignState>((set) => ({
                 newElements.splice(Math.max(index - 1, 0), 0, el);
             }
 
+            return { ...saveHistory(state), ...withActiveElements(state, newElements) };
+        }),
+
+    moveElement: (id, toIndex) =>
+        set((state) => {
+            const fromIndex = state.elements.findIndex((el) => el.id === id);
+            if (fromIndex === -1 || state.elements.length === 0) return state;
+            const target = Math.max(0, Math.min(state.elements.length - 1, toIndex));
+            if (fromIndex === target) return state;
+            const newElements = [...state.elements];
+            const [el] = newElements.splice(fromIndex, 1);
+            newElements.splice(target, 0, el);
             return { ...saveHistory(state), ...withActiveElements(state, newElements) };
         }),
 

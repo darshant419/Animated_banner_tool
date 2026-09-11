@@ -4,9 +4,10 @@ import {
   Image as ImageIcon, ScrollText, Shapes, Code2, Repeat, Trash2,
   ZoomIn, ZoomOut, Sparkles, Plus, SkipBack, SkipForward,
   ChevronLeft, ChevronRight, Magnet, Maximize2, Zap, FastForward,
-  RotateCcw, Sliders
+  RotateCcw, Sliders, GripVertical,
 } from 'lucide-react';
 import { useDesignStore, type DesignElement } from '../../store/designStore';
+import { seekAllMasters } from '../Canvas/AnimationHelpers';
 import {
   getElementKeyframes,
   getElementBaseState,
@@ -56,6 +57,7 @@ export const Timeline: React.FC = () => {
     toggleLock,
     removeElement,
     updateElement,
+    moveElement,
     previewPaused,
   } = useDesignStore();
 
@@ -74,38 +76,106 @@ export const Timeline: React.FC = () => {
     initialDuration: number;
   } | null>(null);
 
+  // Drag-to-reorder element rows (vertical z-order).
+  const rowDragRef = useRef<{
+    id: string;
+    fromIndex: number;
+    pointerId: number;
+    startY: number;
+    side: 'left' | 'right';
+    thresholdPassed: boolean;
+    captured: boolean;
+    overIndex: number;
+  } | null>(null);
+  /** Rendered while a row drag is in progress (drives the drop line + lifted row). */
+  const [rowDragOver, setRowDragOver] = useState<{ id: string; fromIndex: number; overIndex: number; dy: number } | null>(null);
+  const leftRowsRef = useRef<HTMLDivElement>(null);
+  const rightRowsRef = useRef<HTMLDivElement>(null);
+
   const lastTimeRef = useRef<number>(0);
+
+  // Local playhead used to render the needle + timecode smoothly at 60fps while
+  // the global store is only synced ~30x/sec (so panels don't re-render per frame).
+  const [uiTime, setUiTime] = useState(playheadTime);
+  // Ref to the playhead needle DOM element for direct manipulation (avoids
+  // re-rendering the whole timeline on every animation frame).
+  const needleRef = useRef<HTMLDivElement>(null);
+  const playheadRef = useRef(playheadTime);
+  const lastStoreSyncRef = useRef(0);
 
   const trackWidth = Math.max(800, totalDuration * pps + 120);
 
-  // Playback loop
+  // When not playing, keep the local playhead in sync with the store (scrub,
+  // undo, keyboard stepping, loading templates, etc.).
+  useEffect(() => {
+    if (!isPlaying) {
+      setUiTime(playheadTime);
+      playheadRef.current = playheadTime;
+    }
+  }, [isPlaying, playheadTime]);
+
+  // Playback loop — advances every frame, drives every board's canvas at 60fps
+  // via gsap seeks, renders the needle from local state, and throttles writes to
+  // the global store so the whole app doesn't re-render on every animation frame.
   useEffect(() => {
     if (!isPlaying) return;
     let raf: number;
     lastTimeRef.current = performance.now();
+    lastStoreSyncRef.current = performance.now();
+
     const tick = (now: number) => {
       if (!previewPaused) {
-        const dt = (now - lastTimeRef.current) / 1000;
+        const dt = Math.min((now - lastTimeRef.current) / 1000, 0.1);
         lastTimeRef.current = now;
-        const next = playheadTime + dt;
+        const next = playheadRef.current + dt;
+
         if (next >= totalDuration) {
           if (loop) {
+            playheadRef.current = 0;
+            if (needleRef.current) {
+              needleRef.current.style.transform = `translateX(0px)`;
+            }
+            setUiTime(0);
             setPlayheadTime(0);
+            seekAllMasters(0);
           } else {
+            playheadRef.current = totalDuration;
+            if (needleRef.current) {
+              needleRef.current.style.transform = `translateX(${totalDuration * pps}px)`;
+            }
+            setUiTime(totalDuration);
             setPlayheadTime(totalDuration);
+            seekAllMasters(totalDuration);
             setIsPlaying(false);
+            return; // effect cleanup on isPlaying change cancels the loop
           }
         } else {
-          setPlayheadTime(next);
+          playheadRef.current = next;
+          setUiTime(next);
+          // Update needle position directly via DOM (no re-render needed)
+          if (needleRef.current) {
+            needleRef.current.style.transform = `translateX(${next * pps}px)`;
+          }
+          seekAllMasters(next);
+          // Throttle the global sync so panels re-render at most ~30x/sec.
+          if (now - lastStoreSyncRef.current >= 33) {
+            lastStoreSyncRef.current = now;
+            setPlayheadTime(next);
+          }
         }
       } else {
         lastTimeRef.current = now;
       }
       raf = requestAnimationFrame(tick);
     };
+
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isPlaying, playheadTime, totalDuration, loop, setPlayheadTime, setIsPlaying, previewPaused]);
+    // playheadTime intentionally not a dependency — we track it in a ref.
+    // `pps` IS a dependency: the needle is positioned in pixels via DOM, so a
+    // zoom change mid-playback must refresh the closure (the RAF loop simply
+    // restarts; playheadRef preserves the position).
+  }, [isPlaying, totalDuration, loop, setPlayheadTime, setIsPlaying, previewPaused, pps]);
 
   // Convert clientX to timeline seconds with optional grid snapping
   const timeFromEvent = useCallback(
@@ -124,15 +194,25 @@ export const Timeline: React.FC = () => {
   );
 
   // Scrubbing
+  const scrubTo = (t: number) => {
+    setPlayheadTime(t);
+    playheadRef.current = t;
+    setUiTime(t);
+    // Update needle position directly during scrubbing
+    if (needleRef.current) {
+      needleRef.current.style.transform = `translateX(${t * pps}px)`;
+    }
+  };
+
   const startScrub = (e: React.PointerEvent) => {
     scrubRef.current.active = true;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setPlayheadTime(timeFromEvent(e.clientX, false));
+    scrubTo(timeFromEvent(e.clientX, false));
   };
 
   const scrubMove = (e: React.PointerEvent) => {
     if (!scrubRef.current.active) return;
-    setPlayheadTime(timeFromEvent(e.clientX, false));
+    scrubTo(timeFromEvent(e.clientX, false));
   };
 
   const endScrub = () => {
@@ -149,17 +229,17 @@ export const Timeline: React.FC = () => {
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
       const step = e.shiftKey ? 0.5 : 0.1;
-      setPlayheadTime(Math.max(0, playheadTime - step));
+      scrubTo(Math.max(0, playheadTime - step));
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
       const step = e.shiftKey ? 0.5 : 0.1;
-      setPlayheadTime(Math.min(totalDuration, playheadTime + step));
+      scrubTo(Math.min(totalDuration, playheadTime + step));
     } else if (e.key === 'Home') {
       e.preventDefault();
-      setPlayheadTime(0);
+      scrubTo(0);
     } else if (e.key === 'End') {
       e.preventDefault();
-      setPlayheadTime(totalDuration);
+      scrubTo(totalDuration);
     } else if (selectedKeyframe && (e.key === 'Delete' || e.key === 'Backspace')) {
       e.preventDefault();
       removeKeyframe(selectedKeyframe.elementId, selectedKeyframe.keyframeId);
@@ -268,6 +348,81 @@ export const Timeline: React.FC = () => {
     dragSegmentRef.current = null;
   };
 
+  // --- Drag rows to rearrange z-order (bottom row = bottom of the stack) ---
+  const startRowDrag = (el: DesignElement, fromIndex: number, side: 'left' | 'right') => (e: React.PointerEvent) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectElement(el.id);
+    rowDragRef.current = {
+      id: el.id,
+      fromIndex,
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      side,
+      thresholdPassed: false,
+      captured: false,
+      overIndex: fromIndex,
+    };
+  };
+
+  const moveRowDrag = (e: React.PointerEvent) => {
+    const d = rowDragRef.current;
+    if (!d) return;
+    const dy = e.clientY - d.startY;
+
+    // Small dead-zone so plain clicks still select the row / hit row buttons.
+    if (!d.thresholdPassed) {
+      if (Math.abs(dy) < 10) return;
+      d.thresholdPassed = true;
+      // Capture only once the drag is real so child buttons keep their clicks.
+      if (!d.captured) {
+        d.captured = true;
+        (e.currentTarget as HTMLElement).setPointerCapture(d.pointerId);
+      }
+    }
+    e.preventDefault();
+
+    // Auto-scroll the list when hovering near its top / bottom edge.
+    const scroller = d.side === 'left' ? leftRowsRef.current : scrollContainerRef.current;
+    if (scroller) {
+      const rect = scroller.getBoundingClientRect();
+      if (e.clientY < rect.top + 28) scroller.scrollTop -= 12;
+      else if (e.clientY > rect.bottom - 28) scroller.scrollTop += 12;
+    }
+
+    // Map the pointer Y to a row index (scroll-aware per side).
+    let yContent: number;
+    if (d.side === 'left') {
+      const box = leftRowsRef.current;
+      if (!box) return;
+      yContent = (e.clientY - box.getBoundingClientRect().top) + box.scrollTop;
+    } else {
+      const box = rightRowsRef.current;
+      if (!box) return;
+      yContent = e.clientY - box.getBoundingClientRect().top;
+    }
+    const pointerRow = Math.max(0, Math.min(elements.length - 1, Math.floor(yContent / ROW_H)));
+
+    // Final-position semantics: dragging up inserts at the hovered row's slot,
+    // dragging down inserts one below it (so the row follows the cursor).
+    let overIndex = pointerRow;
+    if (pointerRow > d.fromIndex) overIndex = Math.min(elements.length, pointerRow + 1);
+
+    d.overIndex = overIndex;
+    setRowDragOver({ id: d.id, fromIndex: d.fromIndex, overIndex, dy });
+  };
+
+  const endRowDrag = () => {
+    const d = rowDragRef.current;
+    if (!d) return;
+    rowDragRef.current = null;
+    if (d.thresholdPassed && d.overIndex !== d.fromIndex) {
+      moveElement(d.id, d.overIndex);
+    }
+    setRowDragOver(null);
+  };
+
   // Fit to screen zoom calculation
   const handleFitZoom = () => {
     if (!scrollContainerRef.current) return;
@@ -313,7 +468,7 @@ export const Timeline: React.FC = () => {
         {/* Left: Playback & Step Controls */}
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setPlayheadTime(0)}
+            onClick={() => scrubTo(0)}
             className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
             title="Jump to Start (Home)"
           >
@@ -321,7 +476,7 @@ export const Timeline: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setPlayheadTime(Math.max(0, playheadTime - 0.1))}
+            onClick={() => scrubTo(Math.max(0, playheadTime - 0.1))}
             className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
             title="Step Back 0.1s (←)"
           >
@@ -342,7 +497,7 @@ export const Timeline: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setPlayheadTime(Math.min(totalDuration, playheadTime + 0.1))}
+            onClick={() => scrubTo(Math.min(totalDuration, playheadTime + 0.1))}
             className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
             title="Step Forward 0.1s (→)"
           >
@@ -350,7 +505,7 @@ export const Timeline: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setPlayheadTime(totalDuration)}
+            onClick={() => scrubTo(totalDuration)}
             className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
             title="Jump to End (End)"
           >
@@ -359,7 +514,7 @@ export const Timeline: React.FC = () => {
 
           {/* Timecode Readout */}
           <div className="ml-2 flex items-center gap-1.5 font-mono text-xs bg-[#101015] border border-[#262635] px-2.5 py-1 rounded-lg">
-            <span className="text-red-400 font-bold">{formatTimecode(playheadTime)}</span>
+            <span className="text-red-400 font-bold">{formatTimecode(uiTime)}</span>
             <span className="text-gray-600">/</span>
             <span className="text-gray-400">{formatTimecode(totalDuration)}</span>
           </div>
@@ -473,21 +628,44 @@ export const Timeline: React.FC = () => {
             <span className="text-gray-500">Actions</span>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            {elements.map((el) => {
+          <div ref={leftRowsRef} className="flex-1 overflow-y-auto relative">
+            {/* Drop indicator line while reordering rows */}
+            {rowDragOver && (
+              <div
+                className="absolute left-0 right-0 h-0.5 bg-amber-400 pointer-events-none z-10"
+                style={{ top: rowDragOver.overIndex * ROW_H }}
+              />
+            )}
+
+            {elements.map((el, i) => {
               const isSelected = selectedId === el.id;
               const hasEnter = el.enterAnimation || el.animation;
+              const isDragSource = rowDragOver?.id === el.id;
               return (
                 <div
                   key={el.id}
                   onClick={() => selectElement(el.id)}
-                  className={`flex items-center gap-2 px-3 cursor-pointer border-b border-[#1b1b26] group transition ${
+                  onPointerDown={startRowDrag(el, i, 'left')}
+                  onPointerMove={moveRowDrag}
+                  onPointerUp={endRowDrag}
+                  onPointerCancel={endRowDrag}
+                  className={`flex items-center gap-2 px-3 border-b border-[#1b1b26] group transition select-none ${
                     isSelected
                       ? 'bg-red-500/15 border-l-2 border-l-red-500'
                       : 'hover:bg-[#1c1c28] border-l-2 border-l-transparent'
-                  } ${el.visible === false ? 'opacity-40' : ''}`}
-                  style={{ height: ROW_H }}
+                  } ${el.visible === false ? 'opacity-40' : ''} ${
+                    isDragSource
+                      ? 'z-30 shadow-lg shadow-amber-500/15 cursor-grabbing transition-none'
+                      : 'cursor-grab'
+                  }`}
+                  style={{ height: ROW_H, transform: isDragSource && rowDragOver ? `translateY(${rowDragOver.dy}px)` : undefined }}
+                  title="Drag to reorder · lower in list = in front on canvas"
                 >
+                  {/* Always-visible drag/reorder handle */}
+                  <span className="text-gray-500 group-hover:text-white shrink-0 select-none" title="Drag to reorder">
+                    <GripVertical size={12} />
+                  </span>
+
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -592,22 +770,51 @@ export const Timeline: React.FC = () => {
             </div>
 
             {/* 2B. Element Rows with Visual Animation Segments & Keyframes */}
-            <div className="relative" style={{ height: elements.length * ROW_H }}>
+            <div ref={rightRowsRef} className="relative will-change-transform" style={{ height: elements.length * ROW_H }}>
+              {/* Drop indicator line while reordering rows */}
+              {rowDragOver && (
+                <div
+                  className="absolute left-0 right-0 h-0.5 bg-amber-400 pointer-events-none z-10"
+                  style={{ top: rowDragOver.overIndex * ROW_H }}
+                />
+              )}
+
               {elements.map((el, i) => {
                 const kfs = getElementKeyframes(el, totalDuration);
                 const segments = getElementAnimationSegments(el);
                 const isSelected = selectedId === el.id;
+                const isDragSource = rowDragOver?.id === el.id;
 
                 return (
                   <div
                     key={el.id}
-                    className={`absolute left-0 right-0 border-b border-[#181822] relative transition-colors ${
+                    className={`absolute left-0 right-0 border-b border-[#181822] relative transition-colors select-none ${
                       isSelected ? 'bg-red-500/10' : 'hover:bg-white/[0.02]'
+                    } ${
+                      isDragSource
+                        ? 'z-30 shadow-lg shadow-amber-500/15 cursor-grabbing transition-none'
+                        : 'cursor-grab'
                     }`}
-                    style={{ top: i * ROW_H, height: ROW_H }}
+                    style={{
+                      top: i * ROW_H,
+                      height: ROW_H,
+                      transform: isDragSource && rowDragOver ? `translateY(${rowDragOver.dy}px)` : undefined,
+                    }}
                     onClick={() => selectElement(el.id)}
                     onDoubleClick={handleAddKeyframe(el)}
+                    onPointerDown={startRowDrag(el, i, 'right')}
+                    onPointerMove={moveRowDrag}
+                    onPointerUp={endRowDrag}
+                    onPointerCancel={endRowDrag}
                   >
+                    {/* Drag / reorder handle (always visible so users know rows can be rearranged) */}
+                    <div
+                      className="absolute top-0 bottom-0 left-0 w-4 flex items-center justify-center text-gray-600 opacity-70 group-hover:opacity-100 cursor-grab select-none"
+                      title="Drag to reorder row"
+                    >
+                      <GripVertical size={12} />
+                    </div>
+
                     {/* Grid vertical guidelines */}
                     {ticks.filter((t) => t.isMajor).map((t, idx) => (
                       <div
@@ -705,8 +912,9 @@ export const Timeline: React.FC = () => {
 
             {/* 2C. Playhead Needle Line & Cursor */}
             <div
-              className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-30 shadow-[0_0_8px_rgba(239,68,68,0.8)]"
-              style={{ left: playheadTime * pps }}
+              ref={needleRef}
+              className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-30 shadow-[0_0_8px_rgba(239,68,68,0.8)] will-change-transform"
+              style={{ transform: `translateX(${uiTime * pps}px)` }}
             >
               <div className="absolute -top-1 -left-2 w-4 h-4 bg-red-500 rotate-45 rounded-sm shadow-md flex items-center justify-center pointer-events-auto cursor-col-resize">
                 <div className="w-1.5 h-1.5 bg-white rounded-full" />

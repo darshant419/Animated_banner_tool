@@ -1,16 +1,32 @@
 import React, { useRef, useEffect, useState } from 'react';
 import type { DesignElement } from '../../store/designStore';
+import { useDesignStore } from '../../store/designStore';
 
 interface ISIOverlayProps {
   element: DesignElement;
   isActive: boolean;
+  /** True while the master timeline is playing (preview mode). */
+  isAnimating?: boolean;
 }
 
-export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive }) => {
+export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive, isAnimating = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+
+  // Pause the global timeline while hovering this ISI content during preview.
+  // setPreviewPaused only ever *sets* the pause (never clears) so other ISI
+  // instances not being hovered don't cancel an existing hover-pause.
+  const setPreviewPaused = useDesignStore((s) => s.setPreviewPaused);
+  const hoverPausedRef = useRef(false);
+
+  // iScroll-style auto-scroll: keyed on accumulated elapsed ms so a hover
+  // pause freezes the position and resumes from the exact same spot.
+  const rafRef = useRef<number | null>(null);
+  const lastTickRef = useRef<number | null>(null);
+  const elapsedRef = useRef(0);
 
   // Calculate effective padding (individual sides override single value)
   const paddingTop = element.isiPaddingTop ?? element.isiPadding ?? 10;
@@ -26,33 +42,71 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive }) => 
   const effectiveX = (element.x || 0) + marginLeft;
   const effectiveY = (element.y || 0) + marginTop;
 
-  // Auto-scroll preview logic (matching ISIScroll.tsx)
+  // Auto-scroll preview logic (matches the reference banner's iScroll behavior:
+  // scrolls the content, holds ~2.5s at the end, then wraps back to the top).
+  // Hovering pauses the loop; leaving resumes it exactly where it stopped.
   useEffect(() => {
-    if (!isActive || !element.isiAutoStart) return;
+    if (!isActive || !element.isiAutoStart || isHovered) return;
 
-    const startTime = Date.now();
-    let animationFrame: number;
+    lastTickRef.current = null;
+    const speed = Math.max(1, element.isiScrollSpeed || 30);
+    const holdAtEndMs = 2500;
 
-    const animate = () => {
-      const elapsed = (Date.now() - startTime) / 1000;
-      const speed = element.isiScrollSpeed || 30;
+    const tick = (now: number) => {
+      if (lastTickRef.current === null) lastTickRef.current = now;
+      // Clamp the delta so a background-tab hiccup can't teleport the content.
+      elapsedRef.current += Math.min(now - lastTickRef.current, 100);
+      lastTickRef.current = now;
 
       if (contentRef.current && containerRef.current) {
         const headerHeight = element.isiHeaderText ? element.isiHeaderHeight || 20 : 0;
         const maxScroll = (contentRef.current.scrollHeight - headerHeight) - containerRef.current.clientHeight;
         setContentHeight(contentRef.current.scrollHeight - headerHeight);
         if (maxScroll > 0) {
-          const currentScroll = (speed * elapsed) % (maxScroll + 2000); // 2s pause at end
-          const actualScroll = Math.min(currentScroll, maxScroll);
-          setScrollY(actualScroll);
+          const cycleMs = (maxScroll / speed) * 1000 + holdAtEndMs;
+          const raw = ((elapsedRef.current % cycleMs) / 1000) * speed;
+          setScrollY(Math.min(raw, maxScroll));
+        } else {
+          setScrollY(0);
         }
       }
-      animationFrame = requestAnimationFrame(animate);
+      rafRef.current = requestAnimationFrame(tick);
     };
 
-    animationFrame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animationFrame);
-  }, [isActive, element.isiAutoStart, element.isiScrollSpeed, element.isiText, element.isiHeaderText, element.isiHeaderHeight]);
+    rafRef.current = requestAnimationFrame(tick);
+    const cancel = () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      lastTickRef.current = null;
+    };
+    return cancel;
+  }, [isActive, element.isiAutoStart, element.isiScrollSpeed, element.isiText, element.isiHeaderText, element.isiHeaderHeight, element.isiLogoSrc, isHovered]);
+
+  // Pause the global timeline while hovering this ISI content during preview.
+  useEffect(() => {
+    if (isAnimating && isHovered) {
+      setPreviewPaused(true);
+      hoverPausedRef.current = true;
+    }
+  }, [isAnimating, isHovered, setPreviewPaused]);
+
+  // Release the hover-pause if playback stops while the mouse is still over it.
+  useEffect(() => {
+    if (!isAnimating && hoverPausedRef.current) {
+      setPreviewPaused(false);
+      hoverPausedRef.current = false;
+    }
+  }, [isAnimating, setPreviewPaused]);
+
+  // If this overlay unmounts while it had paused the timeline, release it.
+  useEffect(() => {
+    return () => {
+      if (hoverPausedRef.current) {
+        setPreviewPaused(false);
+        hoverPausedRef.current = false;
+      }
+    };
+  }, [setPreviewPaused]);
 
   const style: React.CSSProperties = {
     position: 'absolute',
@@ -70,7 +124,10 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive }) => 
     letterSpacing: `${element.isiLetterSpacing || 0}px`,
     border: `${element.isiBorderWidth || 0}px solid ${element.isiBorderColor || 'transparent'}`,
     overflow: 'hidden',
-    pointerEvents: 'none', // Let users drag/edit elements underneath; links are re-enabled via CSS
+    // Interactive only during preview (so hover pause works, like the reference
+    // banner's .isi-main *). In edit mode it stays click-through so users can
+    // select/drag/transform the Konva element underneath.
+    pointerEvents: isAnimating ? 'auto' : 'none',
     zIndex: 1000,
     boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
     cursor: 'default',
@@ -86,7 +143,25 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive }) => 
   const logoWidth = element.isiLogoWidth || 187;
 
   return (
-    <div ref={containerRef} style={style} className="isi-rich-overlay">
+    <div
+      ref={containerRef}
+      style={style}
+      className="isi-rich-overlay"
+      onMouseEnter={() => {
+        setIsHovered(true);
+        if (isAnimating) {
+          setPreviewPaused(true);
+          hoverPausedRef.current = true;
+        }
+      }}
+      onMouseLeave={() => {
+        setIsHovered(false);
+        if (hoverPausedRef.current) {
+          setPreviewPaused(false);
+          hoverPausedRef.current = false;
+        }
+      }}
+    >
       {/* Traditional patient_link header strip */}
       {headerText && (
         <div className="patient_link">
