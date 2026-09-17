@@ -1,8 +1,7 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { Group, Rect, Text, Image as KonvaImage } from 'react-konva';
 import Konva from 'konva';
 import useImage from 'use-image';
-import { useDesignStore } from '../../store/designStore';
 
 /** Strips HTML markup to plain text for the Konva preview (which can't render HTML). */
 const stripHtml = (html: string): string =>
@@ -83,14 +82,12 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
     width,
     height,
     isiText,
-    isiScrollSpeed = 30,
     fontSize = 12,
     fill = '#000000',
     onDragEnd,
     onClick,
     onDblClick,
     draggable = true,
-    isAnimating,
     isiLogoSrc,
     isiLogoWidth = 187,
     isiLogoPosition = 'bottom',
@@ -122,42 +119,13 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
     isiHeaderHeight = 20,
 }, forwardedRef) {
     const groupRef = useRef<Konva.Group>(null);
-    const [scrollY, setScrollY] = useState(0);
-    const [isHovered, setIsHovered] = useState(false);
-    const isScrolling = isAnimating === true;
-    const setPreviewPaused = useDesignStore((s) => s.setPreviewPaused);
-    const hoverPausedRef = useRef(false);
-
-    // Pause the global timeline while hovering this ISI content during playback.
-    // setPreviewPaused only sets the pause (never clears) so other ISI instances
-    // not being hovered don't cancel the existing hover-pause.
-    useEffect(() => {
-        if (isAnimating && isHovered) {
-            setPreviewPaused(true);
-            hoverPausedRef.current = true;
-        }
-    }, [isAnimating, isHovered, setPreviewPaused]);
-
-    // If this board unmounts while it had hover-paused the timeline, release it.
-    useEffect(() => {
-        return () => {
-            if (hoverPausedRef.current) {
-                setPreviewPaused(false);
-                hoverPausedRef.current = false;
-            }
-        };
-    }, [setPreviewPaused]);
-
-    // Clean up hover state when animation stops (prevents stuck hover state)
-    useEffect(() => {
-        if (!isAnimating && isHovered) {
-            setIsHovered(false);
-            if (hoverPausedRef.current) {
-                setPreviewPaused(false);
-                hoverPausedRef.current = false;
-            }
-        }
-    }, [isAnimating, isHovered, setPreviewPaused]);
+    // NOTE: This Konva node is a STATIC selectable shell only. The ISI scroll
+    // animation lives in ISIOverlay (the HTML tray) on its OWN timeline —
+    // fully independent of the banner (master) animation timeline. No auto
+    // scroll / playhead logic here: two timelines would fight each other and
+    // the old previewPaused logic could stick `true` (the overlay blocks Konva
+    // mouseleave) and froze the whole master timeline, killing all banner
+    // animations.
 
     const hasHeader = Boolean(isiHeaderText);
     const effectiveHeaderHeight = hasHeader ? isiHeaderHeight : 0;
@@ -195,56 +163,10 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
 
     const maxScroll = useMemo(() => contentHeight - bodyHeight, [contentHeight, bodyHeight]);
 
-    const animationFrameRef = useRef<number | null>(null);
-    const lastTimeRef = useRef<number>(0);
+    // Static shell → scrollbar indicator parked at the top. The live scrollbar
+    // lives in the HTML ISIOverlay, which owns the ISI scroll timeline.
+    const scrollY = 0;
 
-    // Auto-scroll logic
-    useEffect(() => {
-        if (!isScrolling || isHovered) {
-            if (animationFrameRef.current) {
-                cancelAnimationFrame(animationFrameRef.current);
-                animationFrameRef.current = null;
-            }
-            return;
-        }
-
-        const animate = (currentTime: number) => {
-            if (!lastTimeRef.current) {
-                lastTimeRef.current = currentTime;
-            }
-
-            const deltaTime = (currentTime - lastTimeRef.current) / 1000;
-            lastTimeRef.current = currentTime;
-
-            setScrollY((prevScrollY) => {
-                const maxScroll = contentHeight - bodyHeight;
-
-                if (maxScroll <= 0) return 0;
-
-                const newScrollY = prevScrollY + isiScrollSpeed * deltaTime;
-
-                if (newScrollY >= maxScroll) {
-                    setTimeout(() => {
-                        setScrollY(0);
-                        lastTimeRef.current = 0;
-                    }, 1000);
-                    return maxScroll;
-                }
-
-                return newScrollY;
-            });
-
-            animationFrameRef.current = requestAnimationFrame(animate);
-        };
-
-        animationFrameRef.current = requestAnimationFrame(animate);
-
-        return () => {
-            if (animationFrameRef.current) {
-                cancelAnimationFrame(animationFrameRef.current);
-            }
-        };
-    }, [isScrolling, isHovered, isiScrollSpeed, bodyHeight, contentHeight]);
 
     // Note: Link interaction and Rich Formatting are handled via the HTML Overlay in DesignCanvas.tsx
     // The Konva preview here shows the basic structure.
@@ -272,22 +194,7 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
             onClick={onClick}
             onTap={onClick}
             onDblClick={onDblClick}
-            onMouseEnter={() => {
-                setIsHovered(true);
-                if (isAnimating) {
-                    setPreviewPaused(true);
-                    hoverPausedRef.current = true;
-                }
-            }}
-            onMouseLeave={() => {
-                setIsHovered(false);
-                // Always clean up pause state if we had paused it
-                if (hoverPausedRef.current) {
-                    setPreviewPaused(false);
-                    hoverPausedRef.current = false;
-                }
-            }}
-        >
+          >
             {/* Background */}
             <Rect
                 width={width}

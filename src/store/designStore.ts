@@ -105,6 +105,13 @@ export interface DesignElement {
     isiText?: string;
     isiScrollSpeed?: number;
     isiAutoStart?: boolean;
+    /** Seconds the ISI tray waits (holding at the top) before the optional
+     *  auto-scroll begins (0 = immediately). Measured on the ISI tray's OWN
+     *  clock — the ISI scroll timeline is completely independent of the banner
+     *  (master) timeline. */
+    isiStartDelay?: number;
+    /** How long (seconds) the ISI content takes to scroll top→bottom before resetting (default 60). */
+    isiScrollDuration?: number;
     isiLogoSrc?: string;
     isiLogoLink?: string;
     isiLogoWidth?: number;

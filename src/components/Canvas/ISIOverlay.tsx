@@ -1,32 +1,124 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { DesignElement } from '../../store/designStore';
-import { useDesignStore } from '../../store/designStore';
 
 interface ISIOverlayProps {
   element: DesignElement;
   isActive: boolean;
-  /** True while the master timeline is playing (preview mode). */
+  /** True while the preview is playing. The ISI tray has NO animation — it is
+   *  a static tray with the editable content + logo. This flag only toggles
+   *  the tray's interactivity (manual wheel / scrollbar while previewing). */
   isAnimating?: boolean;
 }
 
-export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive, isAnimating = false }) => {
+export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
-  const [isHovered, setIsHovered] = useState(false);
 
-  // Pause the global timeline while hovering this ISI content during preview.
-  // setPreviewPaused only ever *sets* the pause (never clears) so other ISI
-  // instances not being hovered don't cancel an existing hover-pause.
-  const setPreviewPaused = useDesignStore((s) => s.setPreviewPaused);
-  const hoverPausedRef = useRef(false);
+  // NO ANIMATION BY DEFAULT: the ISI tray is static — editable content + logo.
+  // OPTIONAL auto-scroll: when "Auto ISI Scroll" is enabled (isiAutoStart),
+  // the tray scrolls on its OWN clock — fully independent of the banner
+  // (master) animation timeline. It waits "Start scrolling at" seconds
+  // (isiStartDelay, measured on the ISI's own clock) holding at the top, then
+  // loops top→bottom over "Scroll Duration" seconds (isiScrollDuration, default
+  // 60), then resets and repeats. It NEVER reads or syncs with the banner
+  // playhead. Hovering (preview) freezes it; the wheel / scrollbar drag can
+  // also scroll it manually.
+  const autoScroll = element.isiAutoStart !== false;
+  const startDelayS = Math.max(0, element.isiStartDelay || 0);
+  const scrollDurationS = Math.max(1, element.isiScrollDuration || 60);
 
-  // iScroll-style auto-scroll: keyed on accumulated elapsed ms so a hover
-  // pause freezes the position and resumes from the exact same spot.
+  const latestRef = useRef({ element, scrollDurationS, autoScroll, startDelayS });
+  latestRef.current = { element, scrollDurationS, autoScroll, startDelayS };
+
+  const getMaxScroll = useCallback((): number => {
+    const el = latestRef.current.element;
+    if (!contentRef.current || !containerRef.current) return 0;
+    const headerHeight = el.isiHeaderText ? el.isiHeaderHeight || 20 : 0;
+    return (contentRef.current.scrollHeight - headerHeight) - containerRef.current.clientHeight;
+  }, []);
+
+  // Manual scroll writer (wheel / scrollbar drag) — kept in sync so the auto
+  // pass can resume seamlessly from wherever the user scrolled to.
+  const scrollYRef = useRef(0);
+  const manualOffsetRef = useRef<number | null>(null);
+  const scrollbarDragRef = useRef<{ pointerId: number; track: HTMLDivElement } | null>(null);
+
+  const applyScroll = useCallback((v: number) => {
+    const max = getMaxScroll();
+    scrollYRef.current = Math.max(0, Math.min(max, v));
+    setScrollY(scrollYRef.current);
+  }, [getMaxScroll]);
+
+  // Optional auto-scroll — the ISI tray's OWN clock, independent of the banner
+  // timeline. It holds at the top for "Start scrolling at" seconds first.
+  // Hovering (preview only) freezes it; leaving resumes from the current spot.
   const rafRef = useRef<number | null>(null);
-  const lastTickRef = useRef<number | null>(null);
-  const elapsedRef = useRef(0);
+  const lastFrameRef = useRef<number | null>(null);
+  const ownClockRef = useRef(0);        // seconds since the tray (re)started
+  const isiClockRef = useRef(0);        // seconds since the current pass began
+  const isHoveredRef = useRef(false);
+  const [isHovered, setIsHovered] = useState(false);
+  isHoveredRef.current = isHovered;
+
+  useEffect(() => {
+    // Restart the ISI's own clock whenever auto-scroll or the start delay
+    // changes, so a newly configured delay counts from now.
+    ownClockRef.current = 0;
+
+    if (!autoScroll) {
+      // Auto-scroll disabled → static tray parked at the top.
+      isiClockRef.current = 0;
+      manualOffsetRef.current = null;
+      applyScroll(0);
+      return;
+    }
+
+    const tick = (now: number) => {
+      if (lastFrameRef.current === null) lastFrameRef.current = now;
+      const dt = Math.min((now - lastFrameRef.current) / 1000, 0.1);
+      lastFrameRef.current = now;
+
+      const { scrollDurationS: dur } = latestRef.current;
+      const maxScroll = getMaxScroll();
+
+      if (maxScroll > 0 && !isHoveredRef.current) {
+        // Advance the ISI tray's OWN clock — the banner playhead is never read.
+        ownClockRef.current += dt;
+
+        if (ownClockRef.current < startDelayS) {
+          // Still inside the "Start scrolling at" delay: hold at the top.
+          isiClockRef.current = 0;
+          manualOffsetRef.current = null;
+          applyScroll(0);
+        } else {
+          isiClockRef.current += dt;
+          if (isiClockRef.current >= dur) {
+            // Pass complete → reset to the top, start the next pass.
+            isiClockRef.current = 0;
+            manualOffsetRef.current = null;
+            applyScroll(0);
+          } else if (manualOffsetRef.current === null) {
+            applyScroll((maxScroll * isiClockRef.current) / dur);
+          }
+          // While hovered / manual-scrolled: the wheel / scrollbar handlers
+          // drive scrollY directly (the auto clock is frozen) — do NOT touch
+          // scrollY here.
+        }
+      }
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    const cancel = () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      lastFrameRef.current = null;
+    };
+    return cancel;
+  }, [autoScroll, startDelayS, applyScroll, getMaxScroll]);
 
   // Calculate effective padding (individual sides override single value)
   const paddingTop = element.isiPaddingTop ?? element.isiPadding ?? 10;
@@ -42,78 +134,96 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive, isAni
   const effectiveX = (element.x || 0) + marginLeft;
   const effectiveY = (element.y || 0) + marginTop;
 
-  // Auto-scroll preview logic (matches the reference banner's iScroll behavior:
-  // scrolls the content, holds ~2.5s at the end, then wraps back to the top).
-  // Hovering pauses the loop; leaving resumes it exactly where it stopped.
+  // Measure the scrollable content height (drives the scrollbar indicator and
+  // maxScroll math). ResizeObserver catches async image/logo loading too.
   useEffect(() => {
-    if (!isActive || !element.isiAutoStart || isHovered) return;
-
-    lastTickRef.current = null;
-    const speed = Math.max(1, element.isiScrollSpeed || 30);
-    const holdAtEndMs = 2500;
-
-    const tick = (now: number) => {
-      if (lastTickRef.current === null) lastTickRef.current = now;
-      // Clamp the delta so a background-tab hiccup can't teleport the content.
-      elapsedRef.current += Math.min(now - lastTickRef.current, 100);
-      lastTickRef.current = now;
-
-      if (contentRef.current && containerRef.current) {
-        const headerHeight = element.isiHeaderText ? element.isiHeaderHeight || 20 : 0;
-        const maxScroll = (contentRef.current.scrollHeight - headerHeight) - containerRef.current.clientHeight;
-        setContentHeight(contentRef.current.scrollHeight - headerHeight);
-        if (maxScroll > 0) {
-          const cycleMs = (maxScroll / speed) * 1000 + holdAtEndMs;
-          const raw = ((elapsedRef.current % cycleMs) / 1000) * speed;
-          setScrollY(Math.min(raw, maxScroll));
-        } else {
-          setScrollY(0);
-        }
-      }
-      rafRef.current = requestAnimationFrame(tick);
+    if (!contentRef.current) return;
+    const measure = () => {
+      const headerHeight = element.isiHeaderText ? element.isiHeaderHeight || 20 : 0;
+      setContentHeight(contentRef.current!.scrollHeight - headerHeight);
     };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(contentRef.current);
+    return () => ro.disconnect();
+  }, [element.isiText, element.isiHeaderText, element.isiHeaderHeight, element.isiLogoSrc, element.fontSize, element.isiLineHeight, element.width, element.height]);
 
-    rafRef.current = requestAnimationFrame(tick);
-    const cancel = () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-      lastTickRef.current = null;
-    };
-    return cancel;
-  }, [isActive, element.isiAutoStart, element.isiScrollSpeed, element.isiText, element.isiHeaderText, element.isiHeaderHeight, element.isiLogoSrc, isHovered]);
-
-  // Pause the global timeline while hovering this ISI content during preview.
+  // Mouse wheel over the ISI tray: scroll up/down manually. Works in edit mode
+  // AND during preview — the ISI never requires the Play/Preview button. The
+  // tray is click-through in edit mode (so the Konva shell underneath stays
+  // selectable/draggable), so we listen on the parent zone and hit-test the
+  // tray rect instead of relying on events reaching the tray itself.
+  // When auto-scroll is enabled, a manual wheel simply resumes the auto pass
+  // from the newly scrolled position (and skips any remaining start delay).
   useEffect(() => {
-    if (isAnimating && isHovered) {
-      setPreviewPaused(true);
-      hoverPausedRef.current = true;
-    }
-  }, [isAnimating, isHovered, setPreviewPaused]);
-
-  // Release the hover-pause if playback stops while the mouse is still over it.
-  useEffect(() => {
-    if (!isAnimating && hoverPausedRef.current) {
-      setPreviewPaused(false);
-      hoverPausedRef.current = false;
-    }
-  }, [isAnimating, setPreviewPaused]);
-
-  // If this overlay unmounts while it had paused the timeline, release it.
-  useEffect(() => {
-    return () => {
-      if (hoverPausedRef.current) {
-        setPreviewPaused(false);
-        hoverPausedRef.current = false;
+    const container = containerRef.current;
+    if (!container) return;
+    const zone = container.parentElement || container;
+    const onWheel = (e: WheelEvent) => {
+      const rect = container.getBoundingClientRect();
+      if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
+      const max = getMaxScroll();
+      if (max <= 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const base = manualOffsetRef.current ?? scrollYRef.current;
+      applyScroll(base + e.deltaY * 0.5);
+      const { autoScroll: auto, startDelayS: delay, scrollDurationS: dur } = latestRef.current;
+      if (auto) {
+        // Continue the auto pass from where the user scrolled to.
+        ownClockRef.current = Math.max(ownClockRef.current, delay);
+        isiClockRef.current = (scrollYRef.current / max) * dur;
+        manualOffsetRef.current = null;
+      } else {
+        manualOffsetRef.current = scrollYRef.current;
       }
     };
-  }, [setPreviewPaused]);
+    zone.addEventListener('wheel', onWheel, { passive: false });
+    return () => zone.removeEventListener('wheel', onWheel);
+  }, [applyScroll, getMaxScroll]);
+
+  // Scrollbar drag (preview only): pointer-drag the indicator (or click the
+  // track) to scroll up/down manually — user-driven, never automated.
+  const dragScrollTo = useCallback((clientY: number, track: HTMLDivElement) => {
+    const max = getMaxScroll();
+    if (max <= 0) return;
+    const rect = track.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    manualOffsetRef.current = ratio * max;
+    applyScroll(manualOffsetRef.current);
+  }, [applyScroll, getMaxScroll]);
+
+  const handleScrollbarPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const track = e.currentTarget;
+    scrollbarDragRef.current = { pointerId: e.pointerId, track };
+    track.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    dragScrollTo(e.clientY, track);
+  };
+  const handleScrollbarPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrollbarDragRef.current) return;
+    dragScrollTo(e.clientY, scrollbarDragRef.current.track);
+  };
+  const handleScrollbarPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrollbarDragRef.current) return;
+    try {
+      scrollbarDragRef.current.track.releasePointerCapture(e.pointerId);
+    } catch {
+      // pointer may already be released
+    }
+    scrollbarDragRef.current = null;
+  };
 
   const style: React.CSSProperties = {
     position: 'absolute',
     left: effectiveX,
     top: effectiveY,
-    width: element.width,
-    height: element.height,
+    // Must match the Konva shell's fallbacks (DesignCanvas passes the same) —
+    // without explicit size the absolute div auto-grows to the full content
+    // height and covers the whole banner, hiding every other element.
+    width: element.width || 300,
+    height: element.height || 200,
     backgroundColor: element.isiBackgroundColor || '#ffffff',
     color: element.fill || '#000000',
     fontSize: `${element.fontSize || 12}px`,
@@ -124,12 +234,16 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive, isAni
     letterSpacing: `${element.isiLetterSpacing || 0}px`,
     border: `${element.isiBorderWidth || 0}px solid ${element.isiBorderColor || 'transparent'}`,
     overflow: 'hidden',
-    // Interactive only during preview (so hover pause works, like the reference
-    // banner's .isi-main *). In edit mode it stays click-through so users can
-    // select/drag/transform the Konva element underneath.
+    // SEPARATE LAYERS: the ISI tray is its own layer on top of the banner.
+    // In edit mode it is semi-transparent with a dashed outline so banner
+    // elements behind/added later stay visible & editable. During preview it
+    // goes fully opaque and manually scrollable (wheel / scrollbar drag).
     pointerEvents: isAnimating ? 'auto' : 'none',
+    opacity: isAnimating ? 1 : 0.55,
+    outline: isAnimating ? 'none' : '1px dashed rgba(0, 105, 55, 0.6)',
+    outlineOffset: -1,
     zIndex: 1000,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    boxShadow: isAnimating ? '0 4px 12px rgba(0,0,0,0.1)' : 'none',
     cursor: 'default',
   };
 
@@ -147,19 +261,19 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive, isAni
       ref={containerRef}
       style={style}
       className="isi-rich-overlay"
-      onMouseEnter={() => {
-        setIsHovered(true);
-        if (isAnimating) {
-          setPreviewPaused(true);
-          hoverPausedRef.current = true;
-        }
-      }}
+      onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => {
         setIsHovered(false);
-        if (hoverPausedRef.current) {
-          setPreviewPaused(false);
-          hoverPausedRef.current = false;
+        // Hand control back to the auto pass (if enabled), resuming from
+        // wherever the user scrolled to — seamless continuation.
+        if (autoScroll) {
+          const max = getMaxScroll();
+          if (max > 0) {
+            const { scrollDurationS: dur } = latestRef.current;
+            isiClockRef.current = (scrollYRef.current / max) * dur;
+          }
         }
+        manualOffsetRef.current = null;
       }}
     >
       {/* Traditional patient_link header strip */}
@@ -243,9 +357,14 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive, isAni
           )}
         </div>
 
-        {/* iScroll-style scrollbar (green track + fixed 13px light indicator) */}
+        {/* iScroll-style scrollbar (green track + fixed 13px light indicator).
+            Interactive: drag the indicator or click the track to scroll up/down. */}
         <div
           className="iScrollVerticalScrollbar iScrollLoneScrollbar"
+          onPointerDown={handleScrollbarPointerDown}
+          onPointerMove={handleScrollbarPointerMove}
+          onPointerUp={handleScrollbarPointerUp}
+          onPointerCancel={handleScrollbarPointerUp}
           style={{
             top: 0,
             right: element.isiScrollbarMarginRight ?? 3,
@@ -260,6 +379,8 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isActive, isAni
             borderRadius: 5,
             borderTop: `1px solid ${scrollbarColor}`,
             borderBottom: `1px solid ${scrollbarColor}`,
+            cursor: 'pointer',
+            touchAction: 'none',
           }}
         >
           <div

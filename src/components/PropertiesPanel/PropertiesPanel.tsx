@@ -365,6 +365,19 @@ return (
                     )}
                 </div>
 
+                {/* Layer Name (rename) */}
+                <div className="space-y-1">
+                    <label className="text-xs font-medium text-gray-400 uppercase">Layer Name</label>
+                    <input
+                        type="text"
+                        value={selectedElement.name || ''}
+                        placeholder={`${selectedElement.type.charAt(0).toUpperCase() + selectedElement.type.slice(1)} ${selectedElement.id.slice(-4)}`}
+                        onChange={(e) => handleChange('name', e.target.value || undefined)}
+                        title="Rename this element — the name shows in the Layers panel and Timeline"
+                        className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                    />
+                </div>
+
                 {/* Position & Size */}
                 <div className="space-y-3">
                     <label className="text-xs font-medium text-gray-400 uppercase">Position & Size</label>
@@ -1089,15 +1102,6 @@ return (
                                             <span className="text-[10px] text-gray-400 font-mono">{(selectedElement.isiBackgroundColor || '#ffffff').toUpperCase()}</span>
                                         </div>
                                     </div>
-                                    <div>
-                                        <label className="text-[11px] text-gray-400 mb-1 block">Scroll Speed</label>
-                                        <input
-                                            type="number"
-                                            value={selectedElement.isiScrollSpeed || 30}
-                                            onChange={(e) => handleChange('isiScrollSpeed', Number(e.target.value))}
-                                            className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                        />
-                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-3 mt-2">
@@ -1436,23 +1440,58 @@ return (
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-2 pt-2 border-t border-[#1a1a21]">
-                                <input
-                                    type="checkbox"
-                                    id="isiAutoStart"
-                                    checked={selectedElement.isiAutoStart !== false}
-                                    onChange={(e) => handleChange('isiAutoStart', e.target.checked)}
-                                    className="rounded border-[#33333f] text-red-500 focus:ring-red-500 h-3 w-3"
-                                />
-                                <label htmlFor="isiAutoStart" className="text-[11px] text-gray-200 font-medium">
-                                    Auto-start after animations
-                                </label>
+                            <div className="pt-2 border-t border-[#1a1a21] space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        id="isiAutoStart"
+                                        checked={selectedElement.isiAutoStart !== false}
+                                        onChange={(e) => handleChange('isiAutoStart', e.target.checked)}
+                                        className="rounded border-[#33333f] text-red-500 focus:ring-red-500 h-3 w-3"
+                                    />
+                                    <label htmlFor="isiAutoStart" className="text-[11px] text-gray-200 font-medium" title="Automatically scroll the ISI content. Runs on the ISI tray's own timeline — independent of the banner animation.">
+                                        Auto ISI Scroll
+                                    </label>
+                                </div>
+
+                                {/* Start delay + scroll duration for the auto-scroll (ISI's own clock) */}
+                                <div className="flex items-center gap-2 pl-5">
+                                    <label className="text-[11px] text-gray-300 whitespace-nowrap" title="Seconds the ISI tray waits (holding at the top) before the auto-scroll begins. Measured on the ISI tray's own clock — independent of the banner animation.">
+                                        Start scrolling at
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        step={0.1}
+                                        value={selectedElement.isiStartDelay || 0}
+                                        onChange={(e) => handleChange('isiStartDelay', Math.max(0, Number(e.target.value) || 0))}
+                                        title="Seconds the ISI tray waits (holding at the top) before the auto-scroll begins. Measured on the ISI tray's own clock — independent of the banner animation."
+                                        className="w-16 border border-[#232330] rounded px-2 py-1 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                    />
+                                    <span className="text-[11px] text-gray-400">secs</span>
+                                </div>
+                                <div className="flex items-center gap-2 pl-5">
+                                    <label className="text-[11px] text-gray-300 whitespace-nowrap" title="How long (seconds) the ISI content takes to scroll top→bottom before resetting to the top (ISI tray's own timeline)">
+                                        Scroll duration
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        step={1}
+                                        value={selectedElement.isiScrollDuration || 60}
+                                        onChange={(e) => handleChange('isiScrollDuration', Math.max(1, Number(e.target.value) || 60))}
+                                        title="How long (seconds) the ISI content takes to scroll top→bottom before resetting to the top (ISI tray's own timeline)"
+                                        className="w-16 border border-[#232330] rounded px-2 py-1 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                    />
+                                    <span className="text-[11px] text-gray-400">secs</span>
+                                    <span className="text-[10px] text-gray-500">· then resets to top</span>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
+                         </div>
+                     </div>
+                 )}
+             </div>
+         </div>
   
     );
 };

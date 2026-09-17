@@ -10,8 +10,16 @@ import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
 import { ISIOverlay } from './ISIOverlay';
 import JSZip from 'jszip';
-import { buildMasterTimeline, previewElementOnCanvas, stopActivePreview, registerMasterSeeker, unregisterMasterSeeker } from './AnimationHelpers';
+import { buildMasterTimeline, registerMasterSeeker, unregisterMasterSeeker } from './AnimationHelpers';
 import { getElementBaseState, getElementKeyframes } from '../../utils/keyframes';
+import {
+  buildAnimationStartEvent,
+  buildElementAnimationCss,
+  buildIsiScrollEvent,
+  buildMainJs,
+  buildVideoAutoplayEvent,
+  jsStringLiteral,
+} from '../../utils/bannerExport';
 
 const URLImage = React.forwardRef<Konva.Image, any>(function URLImage({ image, ...props }, ref) {
   const [img] = useImage(image.src);
@@ -354,35 +362,6 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     nodeRefs.current.forEach((n) => n.getLayer()?.batchDraw());
   }, [isPlaying, playheadTime, elements]);
 
-  // Live animation preview for selected element (triggered by Animation Studio Dialog)
-  useEffect(() => {
-    if (!isActive) return;
-    const handlePreview = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      const { elementId, preset, duration, delay, easing, loop } = customEvent.detail || {};
-      if (!elementId) return;
-      const el = elements.find((x) => x.id === elementId);
-      const node = nodeRefs.current.get(elementId);
-      if (el && node) {
-        previewElementOnCanvas(node, el, preset, duration, delay, easing, loop, () => {
-          window.dispatchEvent(new CustomEvent('element-animation-preview-complete'));
-        });
-      }
-    };
-
-    const handleStopPreview = () => {
-      stopActivePreview();
-    };
-
-    window.addEventListener('preview-element-animation', handlePreview as EventListener);
-    window.addEventListener('stop-preview-element-animation', handleStopPreview as EventListener);
-    return () => {
-      window.removeEventListener('preview-element-animation', handlePreview as EventListener);
-      window.removeEventListener('stop-preview-element-animation', handleStopPreview as EventListener);
-      stopActivePreview();
-    };
-  }, [isActive, elements]);
-
   // Transformer selection G�� only the active board shows selection handles, so
   // picking a component in the multi-size view never highlights other sizes.
   useEffect(() => {
@@ -473,9 +452,9 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
 
   return (
     <div
-      className={`relative bg-white overflow-hidden transition-shadow ${isActive ? 'ring-2 ring-red-500 shadow-xl' : 'shadow-md ring-1 ring-black/10 hover:ring-red-400/60'
+      className={`relative bg-white overflow-hidden transition-shadow ${isActive ? 'shadow-xl' : 'shadow-md'
         }`}
-      style={{ width: board.width, height: board.height }}
+      style={{ width: board.width, height: board.height, border: '1px solid #000000', boxSizing: 'border-box' }}
     >
       <Stage
         ref={(stage) => {
@@ -531,11 +510,12 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
         </Layer>
       </Stage>
 
-      {/* Rich HTML ISI content — always rendered (edit + preview) so the preview
-          matches the reference banner. During playback it becomes interactive:
-          hovering pauses the auto-scroll + master timeline like iScroll. */}
-      {elements.some((el) => el.type === 'isiScroll') && (
-        elements.filter((el) => el.type === 'isiScroll').map((el) => (
+      {/* Rich HTML ISI content — the ISI tray lives on its OWN layer above the
+          banner canvas, and its scroll timeline is fully independent of the
+          master banner timeline. Respects the element's visibility toggle;
+          during playback it becomes interactive (hover pause + scrollbar). */}
+      {elements.some((el) => el.type === 'isiScroll' && el.visible !== false) && (
+        elements.filter((el) => el.type === 'isiScroll' && el.visible !== false).map((el) => (
           <ISIOverlay key={el.id} element={el} isActive={true} isAnimating={isPlaying} />
         ))
       )}
@@ -695,7 +675,7 @@ export const DesignCanvas: React.FC = () => {
       const cssLines: string[] = [
         '* { box-sizing: border-box; margin: 0; padding: 0; }',
         'body { margin: 0; padding: 0; background: #f0f0f0; font-family: Arial, Helvetica, sans-serif; }',
-        '#banner { position: relative; width: ' + canvasWidth + 'px; height: ' + canvasHeight + 'px; background: ' + canvasBackground + '; overflow: hidden; }',
+        '#banner { position: relative; width: ' + canvasWidth + 'px; height: ' + canvasHeight + 'px; background: ' + canvasBackground + '; overflow: hidden; border: 1px solid #000000; }',
         // ISI styles
         '.isi-main { position: absolute; overflow: hidden; }',
         '.isi-main * { pointer-events: all; }',
@@ -737,7 +717,7 @@ export const DesignCanvas: React.FC = () => {
         '  <link rel="stylesheet" href="css/styles.css" />',
         '  <meta name="ad.size" content="width=' + canvasWidth + ',height=' + canvasHeight + '" />',
         '  <script type="text/javascript">',
-        '    var clickTag1 = "' + canvasBackground + '";',
+        '    var clickTag1 = ' + jsStringLiteral(canvasBackground) + ';',
         '    var clickTag2 = "#";',
         '    var clickTag3 = "#";',
         '  </script>',
@@ -765,23 +745,13 @@ export const DesignCanvas: React.FC = () => {
         }
       }
 
-      if (canvasBackgroundImage) {
-        const bgImgName = 'bg.png';
-        htmlParts.push('          <div style="position:absolute; inset:0; background-image:url(\'images/' + bgImgName + '\'); background-size:cover;"></div>');
-        if (canvasBackgroundImage.startsWith('data:')) {
-          imgFolder?.file(bgImgName, canvasBackgroundImage.split(',')[1], { base64: true });
-        } else {
-          try {
-            const blob = await (await fetch(canvasBackgroundImage)).blob();
-            imgFolder?.file(bgImgName, blob);
-          } catch { /* ignore */ }
-        }
-      }
-
       elements.forEach((el, index) => {
         const id = 'el-' + el.id;
         const base = getElementBaseState(el);
         const z = index;
+
+        // Hidden layers are skipped so the exported banner matches the canvas.
+        if (el.visible === false) return;
 
         if (el.type === 'isiScroll') {
           const fontCol = el.fill || '#000000';
@@ -816,34 +786,20 @@ export const DesignCanvas: React.FC = () => {
           const isiElemId = 'isi-content-' + el.id;
           const isiIndicatorId = 'isi-indicator-' + el.id;
 
-          // ISI scroll animation via setTimeout + requestAnimationFrame
-          timelineEvents.push(
-            '      { time: 0, action: () => {\n' +
-            '        const content = document.getElementById("' + isiElemId + '");\n' +
-            '        const indicator = document.getElementById("' + isiIndicatorId + '");\n' +
-            '        if (content && content.parentElement) {\n' +
-            '          const parent = content.parentElement;\n' +
-            '          const maxScroll = content.scrollHeight - parent.clientHeight;\n' +
-            '          if (maxScroll > 0) {\n' +
-            '            const track = parent.querySelector(".iScrollVerticalScrollbar");\n' +
-            '            const duration = maxScroll / ' + (el.isiScrollSpeed || 30) + ';\n' +
-            '            let start = null;\n' +
-            '            const animate = (timestamp) => {\n' +
-            '              if (!start) start = timestamp;\n' +
-            '              const elapsed = (timestamp - start) / 1000;\n' +
-            '              const progress = Math.min(elapsed / duration, 1);\n' +
-            '              content.style.transform = "translateY(" + (-maxScroll * progress) + "px)";\n' +
-            '              if (indicator && track) {\n' +
-            '                const indicatorY = progress * (track.clientHeight - (indicator.clientHeight || 13));\n' +
-            '                indicator.style.transform = "translateY(" + indicatorY + "px)";\n' +
-            '              }\n' +
-            '              if (progress < 1) requestAnimationFrame(animate);\n' +
-            '            };\n' +
-            '            requestAnimationFrame(animate);\n' +
-            '          }\n' +
-            '        }\n' +
-            '      } },'
-          );
+          // The ISI tray scrolls ONLY if "Auto ISI Scroll" is enabled
+          // (isiAutoStart). It runs on its OWN clock (setTimeout + rAF loop),
+          // completely independent of the banner's master animation timeline.
+          // When disabled, the ISI stays static — just content + placed logo.
+          if (el.isiAutoStart !== false) {
+            timelineEvents.push(
+              buildIsiScrollEvent({
+                contentId: isiElemId,
+                indicatorId: isiIndicatorId,
+                startDelayMs: (el.isiStartDelay || 0) * 1000,
+                scrollDuration: el.isiScrollDuration,
+              }),
+            );
+          }
 
           htmlBodyParts.push(
             '          <div id="' + id + '" class="isi-main">',
@@ -893,12 +849,7 @@ export const DesignCanvas: React.FC = () => {
           htmlBodyParts.push('          <video id="' + id + '" class="element" src="images/' + videoName + '" style="width: ' + (el.width || 320) + 'px; height: ' + (el.height || 180) + 'px;" muted playsinline></video>');
           cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 320) + 'px; height: ' + (el.height || 180) + 'px; z-index: ' + z + '; }');
           // Auto-play video on load
-          timelineEvents.push(
-            '      { time: 0, action: () => {\n' +
-            '        var v = document.getElementById("' + id + '");\n' +
-            '        if (v) v.play().catch(() => {});\n' +
-            '      } },'
-          );
+          timelineEvents.push(buildVideoAutoplayEvent(id));
         } else if (el.type === 'shape' && el.path) {
           htmlBodyParts.push(
             '          <div id="' + id + '" class="element">',
@@ -913,51 +864,37 @@ export const DesignCanvas: React.FC = () => {
           return;
         }
 
-        // Convert keyframes to CSS animation + setTimeout timeline event
+        // Convert keyframes to a CSS @keyframes rule + a timeline event that
+        // attaches the animation at the element's start time.
         const kfs = getElementKeyframes(el, totalDuration);
         const loopAnim = el.anim?.loop === true || el.animationLoop === true;
+        const animationCss = buildElementAnimationCss({
+          id,
+          frames: kfs,
+          base,
+          elX: el.x,
+          elY: el.y,
+          totalDuration,
+        });
 
-        if (kfs.length > 0) {
-          const animName = 'anim-' + id;
-          cssLines.push('@keyframes ' + animName + ' {');
-          kfs.forEach((k) => {
-            const pct = (k.time / totalDuration * 100).toFixed(2);
-            const parts: string[] = [];
-            parts.push('opacity: ' + (k.opacity !== undefined ? k.opacity / 100 : base.opacity / 100) + ';');
-            const x = k.x !== undefined ? k.x - el.x : 0;
-            const y = k.y !== undefined ? k.y - el.y : 0;
-            let transformStr = 'translate(' + x + 'px, ' + y + 'px)';
-            if (k.rotation !== undefined) transformStr += ' rotate(' + k.rotation + 'deg)';
-            if (k.scaleX !== undefined) transformStr += ' scaleX(' + k.scaleX + ')';
-            if (k.scaleY !== undefined) transformStr += ' scaleY(' + k.scaleY + ')';
-            transformStr += '';
-            parts.push('transform: ' + transformStr + ';');
-            if (k.letterSpacing !== undefined) parts.push('letter-spacing: ' + k.letterSpacing + 'px;');
-            if (k.blur !== undefined) parts.push('filter: blur(' + k.blur + 'px);');
-            cssLines.push('  ' + pct + '% { ' + parts.join(' ') + ' }');
-          });
-          cssLines.push('}');
+        if (animationCss) {
+          cssLines.push(...animationCss.css);
 
-          // Add initial state via JS and timeline event to start animation
-          const delayMs = Math.round((kfs[0].time || 0) * 1000);
-          const fullDurationMs = Math.round(totalDuration * 1000);
-          const repeatStr = loopAnim ? ' infinite' : '';
-          // For delayed elements that start hidden, set initial opacity: 0 via CSS
-          // so they don't flash before the animation starts (prevents the
-          // "animation happens twice" bug). The animation will animate from
-          // opacity: 0 to the final state.
-          const needsInitialHidden = kfs[0].time > 0.05 && (kfs[0].opacity !== undefined && kfs[0].opacity / 100 < 0.02);
-          if (needsInitialHidden) {
+          // An element whose animation starts from a hidden state stays hidden
+          // until the animation is attached, so it cannot flash its resting
+          // state before its entrance runs.
+          if (animationCss.initialHidden) {
             cssLines.push('#' + id + ' { opacity: 0; }');
           }
+
           timelineEvents.push(
-            '      { time: ' + delayMs + ', action: () => {\n' +
-            '        var el = document.getElementById("' + id + '");\n' +
-            '        if (el) {\n' +
-            '          el.style.animation: ' + fullDurationMs + 'ms linear' + repeatStr + ' ' + animName + ';\n' +
-            '          el.style.animationFillMode = "forwards";\n' +
-            '        }\n' +
-            '      } },'
+            buildAnimationStartEvent({
+              id,
+              startDelayMs: animationCss.startDelayMs,
+              durationMs: animationCss.durationMs,
+              loop: loopAnim,
+              animationName: animationCss.animationName,
+            }),
           );
         }
       });
@@ -975,25 +912,11 @@ export const DesignCanvas: React.FC = () => {
         '</html>',
       ].join('\n');
 
-      // Build JS file
-      const jsLines: string[] = [];
-      jsLines.push('// Banner animation timeline');
-      jsLines.push('var clickTag1 = "' + canvasBackground + '";');
-      jsLines.push('var clickTag2 = "#";');
-      jsLines.push('var clickTag3 = "#";');
-      jsLines.push('');
-      jsLines.push('var animationTimeline = [');
-      jsLines.push(...timelineEvents);
-      jsLines.push('];');
-      jsLines.push('');
-      jsLines.push('window.onload = function() {');
-      jsLines.push('  animationTimeline.forEach(function(event) {');
-      jsLines.push('    setTimeout(event.action, event.time);');
-      jsLines.push('  });');
-      jsLines.push('};');
+      // Build JS file (clickTags + animation timeline)
+      const mainJs = buildMainJs(timelineEvents, canvasBackground);
 
       cssFolder?.file('styles.css', cssLines.join('\n'));
-      jsFolder?.file('main.js', jsLines.join('\n'));
+      jsFolder?.file('main.js', mainJs);
       zip.file('index.html', htmlContent);
 
       const content = await zip.generateAsync({ type: 'blob' });
@@ -1040,7 +963,7 @@ export const DesignCanvas: React.FC = () => {
           {artboards.map((ab) => (
             <div
               key={ab.id}
-              className={`rounded-xl border p-2 ${activeArtboardId === ab.id ? 'border-red-500 bg-red-500/5' : 'border-[#2a2a35] bg-[#15151c]'}`}
+              className={`rounded-xl border p-2 ${activeArtboardId === ab.id ? 'border-white bg-white/5' : 'border-[#2a2a35] bg-[#15151c]'}`}
             >
               <div className="flex items-center justify-between gap-3 px-1 pb-2">
                 <span className="text-[11px] font-semibold text-gray-100">{ab.label}</span>

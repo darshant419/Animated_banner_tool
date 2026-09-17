@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-    X, Play, Pause, RotateCcw, Sparkles, Search, Layers,
+    X, RotateCcw, Sparkles, Search, Layers,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
     ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight,
     Dot, Check, Zap, FastForward
@@ -10,7 +10,7 @@ import {
     ANIMISTA_ANIMATIONS,
     animationLabel,
 } from '../../utils/animations';
-import { EASINGS, applyStaggeredDelays, type StaggerOrder } from '../../utils/keyframes';
+import { applyStaggeredDelays, type StaggerOrder } from '../../utils/keyframes';
 
 interface AnimationDialogProps {
     isOpen: boolean;
@@ -34,8 +34,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
     const [activeTab, setActiveTab] = useState<'in' | 'loop' | 'out' | 'hover' | 'sequence'>(initialTab);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
-    const [autoPreview, setAutoPreview] = useState(true);
-    const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
 
     // Stagger settings
     const [staggerGap, setStaggerGap] = useState(0.2);
@@ -46,15 +44,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
     useEffect(() => {
         if (initialTab) setActiveTab(initialTab);
     }, [initialTab]);
-
-    // Listen for preview completion from DesignCanvas
-    useEffect(() => {
-        const handleComplete = () => {
-            setIsPreviewPlaying(false);
-        };
-        window.addEventListener('element-animation-preview-complete', handleComplete);
-        return () => window.removeEventListener('element-animation-preview-complete', handleComplete);
-    }, []);
 
     // Current animation values for the selected element
     const currentPreset = useMemo(() => {
@@ -67,39 +56,13 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
     }, [selectedElement, activeTab]);
 
     const currentDuration = selectedElement?.animationDuration || 0.8;
-    const currentDelay = activeTab === 'in' ? (selectedElement?.enterDelay || 0) : (selectedElement?.animationDelay || 0);
-    const currentEasing = 'power2.out';
-
-    // Trigger instant canvas live preview
-    const triggerCanvasPreview = useCallback(
-        (presetId: string, duration?: number, delay?: number, loop?: boolean, easing?: string) => {
-            if (!selectedElement || presetId === 'none') {
-                window.dispatchEvent(new CustomEvent('stop-preview-element-animation'));
-                setIsPreviewPlaying(false);
-                return;
-            }
-
-            setIsPreviewPlaying(true);
-            window.dispatchEvent(
-                new CustomEvent('preview-element-animation', {
-                    detail: {
-                        elementId: selectedElement.id,
-                        preset: presetId,
-                        duration: duration ?? currentDuration,
-                        delay: delay ?? 0,
-                        easing: easing ?? currentEasing,
-                        loop: loop ?? false,
-                    },
-                }),
-            );
-        },
-        [selectedElement, currentDuration, currentEasing],
-    );
-
-    const stopCanvasPreview = useCallback(() => {
-        window.dispatchEvent(new CustomEvent('stop-preview-element-animation'));
-        setIsPreviewPlaying(false);
-    }, []);
+    // Delay/gap semantics per tab: entrance delay for "in", the GAP between the
+    // entrance/main animation and the exit for "out", generic delay otherwise.
+    const currentDelay = activeTab === 'in'
+        ? (selectedElement?.enterDelay || 0)
+        : activeTab === 'out'
+            ? (selectedElement?.exitDelay || 0)
+            : (selectedElement?.animationDelay || 0);
 
     // All presets list
     const allPresets = useMemo(() => {
@@ -160,10 +123,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
             updateElement(selectedElement.id, {
                 hoverAnimation: presetId as DesignElement['hoverAnimation'],
             });
-        }
-
-        if (autoPreview && presetId !== 'none') {
-            triggerCanvasPreview(presetId, currentDuration, currentDelay, activeTab === 'loop');
         }
     };
 
@@ -253,21 +212,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
 
                     <div className="flex items-center gap-2">
                         <button
-                            onClick={() => {
-                                if (isPreviewPlaying) stopCanvasPreview();
-                                else triggerCanvasPreview(currentPreset, currentDuration, currentDelay, activeTab === 'loop');
-                            }}
-                            disabled={!selectedElement || currentPreset === 'none'}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shadow-sm ${
-                                isPreviewPlaying
-                                    ? 'bg-amber-500 text-black hover:bg-amber-400'
-                                    : 'bg-red-600 hover:bg-red-500 text-white disabled:opacity-30 disabled:cursor-not-allowed'
-                            }`}
-                        >
-                            {isPreviewPlaying ? <Pause size={13} /> : <Play size={13} />}
-                            {isPreviewPlaying ? 'Stop' : 'Play Live Preview'}
-                        </button>
-                        <button
                             onClick={onClose}
                             className="p-2 text-gray-400 hover:text-white hover:bg-[#232330] rounded-lg transition"
                             title="Close"
@@ -292,7 +236,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                     setActiveTab(t.id as any);
                                     setSelectedCategory('All');
                                     setSearchQuery('');
-                                    stopCanvasPreview();
                                 }}
                                 className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
                                     activeTab === t.id
@@ -304,18 +247,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                 {t.label}
                             </button>
                         ))}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-1.5 text-[11px] text-gray-400 cursor-pointer select-none">
-                            <input
-                                type="checkbox"
-                                checked={autoPreview}
-                                onChange={(e) => setAutoPreview(e.target.checked)}
-                                className="rounded border-[#33333f] text-red-500 focus:ring-red-500"
-                            />
-                            Live Preview on Click
-                        </label>
                     </div>
                 </div>
 
@@ -386,9 +317,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                         <button
                                             key={preset.id}
                                             onClick={() => handleSelectPreset(preset.id)}
-                                            onMouseEnter={() => {
-                                                if (autoPreview) triggerCanvasPreview(preset.id, currentDuration, 0, activeTab === 'loop');
-                                            }}
                                             className={`p-3 rounded-xl border text-left transition flex flex-col justify-between h-[82px] relative group ${
                                                 isSelected
                                                     ? 'border-red-500 bg-red-500/15 ring-1 ring-red-500 shadow-lg shadow-red-500/10'
@@ -466,7 +394,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                             const val = parseFloat(e.target.value);
                                             if (selectedElement) {
                                                 updateElement(selectedElement.id, { animationDuration: val });
-                                                if (autoPreview) triggerCanvasPreview(currentPreset, val, currentDelay, activeTab === 'loop');
                                             }
                                         }}
                                         className="w-full h-1.5 bg-[#232332] rounded-lg appearance-none cursor-pointer accent-red-500"
@@ -478,7 +405,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                                 onClick={() => {
                                                     if (selectedElement) {
                                                         updateElement(selectedElement.id, { animationDuration: sec });
-                                                        if (autoPreview) triggerCanvasPreview(currentPreset, sec, currentDelay, activeTab === 'loop');
                                                     }
                                                 }}
                                                 className={`flex-1 py-1 rounded text-[10px] font-medium border transition ${
@@ -495,7 +421,14 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
 
                                 <div className="space-y-1.5">
                                     <div className="flex justify-between text-xs">
-                                        <span className="text-gray-400">Delay</span>
+                                        <span
+                                            className="text-gray-400"
+                                            title={activeTab === 'out'
+                                                ? 'Gap (seconds) between the end of the entrance/main animation and the start of the exit animation'
+                                                : 'Delay (seconds) before the animation begins'}
+                                        >
+                                            {activeTab === 'out' ? 'Gap After Entrance' : 'Delay'}
+                                        </span>
                                         <span className="font-semibold text-gray-200">{currentDelay}s</span>
                                     </div>
                                     <input
@@ -508,31 +441,13 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                             const val = parseFloat(e.target.value);
                                             if (selectedElement) {
                                                 if (activeTab === 'in') updateElement(selectedElement.id, { enterDelay: val });
+                                                else if (activeTab === 'out') updateElement(selectedElement.id, { exitDelay: val });
                                                 else updateElement(selectedElement.id, { animationDelay: val });
                                             }
                                         }}
                                         className="w-full h-1.5 bg-[#232332] rounded-lg appearance-none cursor-pointer accent-red-500"
                                     />
                                 </div>
-                            </div>
-
-                            {/* Easing Selector */}
-                            <div className="space-y-2 border-t border-[#232330] pt-4">
-                                <label className="text-xs font-semibold text-gray-300 uppercase tracking-wide block">
-                                    Easing Curve
-                                </label>
-                                <select
-                                    className="w-full bg-[#1c1c27] border border-[#2a2a38] rounded-xl px-3 py-2 text-xs text-gray-200 focus:border-red-500 focus:outline-none"
-                                    onChange={(e) => {
-                                        if (autoPreview) triggerCanvasPreview(currentPreset, currentDuration, currentDelay, activeTab === 'loop', e.target.value);
-                                    }}
-                                >
-                                    {EASINGS.map((ease) => (
-                                        <option key={ease.id} value={ease.id}>
-                                            {ease.label} {ease.desc ? `· ${ease.desc}` : ''}
-                                        </option>
-                                    ))}
-                                </select>
                             </div>
 
                             {/* Batch Actions */}
@@ -693,7 +608,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                         <button
                             onClick={() => {
                                 handleSelectPreset('none');
-                                stopCanvasPreview();
                             }}
                             className="px-4 py-2 rounded-xl text-xs text-gray-400 hover:text-white hover:bg-[#232330] transition"
                         >
@@ -701,7 +615,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                         </button>
                         <button
                             onClick={() => {
-                                stopCanvasPreview();
                                 onClose();
                             }}
                             className="px-5 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-500 text-white transition shadow-md shadow-red-600/20"

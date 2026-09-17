@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Eye, EyeOff, Lock, Unlock, Type, Square, Circle,
   Image as ImageIcon, ScrollText, Shapes, Code2,
-  ArrowUp, ArrowDown, Copy, Trash2,
+  ArrowUp, ArrowDown, Copy, Trash2, Pencil,
 } from 'lucide-react';
 import { useDesignStore, type DesignElement } from '../../store/designStore';
 
@@ -59,7 +59,7 @@ export const LayersPanel: React.FC = () => {
     <div className="w-72 bg-[#15151c] border-r border-[#2a2a35] flex flex-col h-full z-10">
       <div className="p-4 border-b border-[#232330] bg-[#1a1a21]/50">
         <h2 className="text-sm font-semibold text-gray-100">Layers</h2>
-        <p className="text-xs text-gray-500 mt-1">{elements.length} layer{elements.length === 1 ? '' : 's'} · click to select, double-click to rename</p>
+        <p className="text-xs text-gray-500 mt-1">{elements.length} layer{elements.length === 1 ? '' : 's'} · click to select, use the pencil (or double-click the name) to rename</p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
@@ -94,6 +94,13 @@ export const LayersPanel: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); setRenamingId(el.id); }}
+                className={`p-1 rounded ${renamingId === el.id ? 'text-red-400' : 'text-gray-500 hover:text-gray-200'}`}
+                title="Rename layer"
+              >
+                <Pencil size={12} />
+              </button>
               <button
                 onClick={(e) => { e.stopPropagation(); reorderElement(el.id, 'up'); }}
                 className="p-1 text-gray-500  rounded"
