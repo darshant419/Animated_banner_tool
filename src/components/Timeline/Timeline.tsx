@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from 'react';
 import {
   Play, Pause, Eye, EyeOff, Lock, Unlock, Type, Square, Circle,
   Image as ImageIcon, ScrollText, Shapes, Code2, Repeat, Trash2,
@@ -16,6 +16,8 @@ import {
 } from '../../utils/keyframes';
 
 const ROW_H = 38;
+/** Height of the ruler strip (Tailwind `h-7`) that sits above the element rows. */
+const RULER_H = 28;
 const DEFAULT_PPS = 100;
 const MIN_PPS = 30;
 const MAX_PPS = 240;
@@ -104,6 +106,27 @@ export const Timeline: React.FC = () => {
   const lastStoreSyncRef = useRef(0);
 
   const trackWidth = Math.max(800, totalDuration * pps + 120);
+
+  // The tracks rail must always be at least as tall as the visible workspace so
+  // the red playhead line runs the FULL height of the timeline (instead of
+  // stopping right under the last element row). `min-h-full` alone relies on the
+  // scroll container having a resolvable definite height, so we also measure the
+  // workspace explicitly and feed it back as an inline min-height.
+  const [trackMinHeight, setTrackMinHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const measure = () => setTrackMinHeight(el.clientHeight);
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // When not playing, keep the local playhead in sync with the store (scrub,
   // undo, keyboard stepping, loading templates, etc.).
@@ -739,7 +762,7 @@ export const Timeline: React.FC = () => {
         <div className="flex-1 overflow-auto relative bg-[#0f0f15]" ref={scrollContainerRef}>
           <div
             ref={trackRef}
-            style={{ width: trackWidth, position: 'relative' }}
+            style={{ width: trackWidth, position: 'relative', minHeight: trackMinHeight || undefined }}
             className="min-h-full"
             onPointerDown={moveDragSegment}
             onPointerMove={moveDragSegment}
@@ -747,10 +770,12 @@ export const Timeline: React.FC = () => {
           >
             {/* 2A. Timeline Ruler */}
             <div
-              className="h-7 border-b border-[#232330] bg-[#15151e] relative cursor-pointer"
+              className="border-b border-[#232330] bg-[#15151e] relative cursor-grab active:cursor-grabbing touch-none"
+              style={{ height: RULER_H }}
               onPointerDown={startScrub}
               onPointerMove={scrubMove}
               onPointerUp={endScrub}
+              onPointerCancel={endScrub}
             >
               {ticks.map((t, idx) => (
                 <div
@@ -910,20 +935,45 @@ export const Timeline: React.FC = () => {
               })}
             </div>
 
-            {/* 2C. Playhead Needle Line & Cursor */}
+            {/* 2C. Playhead Needle Line & Scrub Handle */}
+            {/* Spans the full rail (top -> bottom) so the red line always runs the
+                entire height of the timeline, ruler included. */}
             <div
               ref={needleRef}
-              className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-30 shadow-[0_0_8px_rgba(239,68,68,0.8)] will-change-transform"
+              className="absolute top-0 bottom-0 w-[3px] bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.55)] pointer-events-none z-40 will-change-transform"
               style={{ transform: `translateX(${uiTime * pps}px)` }}
             >
-              <div className="absolute -top-1 -left-2 w-4 h-4 bg-red-500 rotate-45 rounded-sm shadow-md flex items-center justify-center pointer-events-auto cursor-col-resize">
-                <div className="w-1.5 h-1.5 bg-white rounded-full" />
+              {/* Grabbable strip on the line itself: gives the hand (grab) cursor
+                  on the red line and lets you scrub from anywhere along it. */}
+              <div
+                className="absolute -left-[2.5px] top-0 bottom-0 w-2 pointer-events-auto cursor-grab active:cursor-grabbing touch-none"
+                title="Drag to scrub"
+                onPointerDown={startScrub}
+                onPointerMove={scrubMove}
+                onPointerUp={endScrub}
+                onPointerCancel={endScrub}
+              />
+
+              {/* Diamond handle — kept inside the rail's top edge so it is never
+                  clipped by the workspace' overflow. */}
+              <div
+                className="absolute left-1/2 top-1 -translate-x-1/2 rotate-45 w-4 h-4 bg-red-500 rounded-[3px] shadow-[0_0_10px_rgba(239,68,68,0.85)] flex items-center justify-center pointer-events-auto cursor-grab active:cursor-grabbing touch-none"
+                title="Drag to scrub"
+                onPointerDown={startScrub}
+                onPointerMove={scrubMove}
+                onPointerUp={endScrub}
+                onPointerCancel={endScrub}
+              >
+                <div className="w-1 h-1 bg-white rounded-full" />
               </div>
             </div>
 
-            {/* Scrub Hit Target */}
+            {/* Scrub Hit Target: only the empty space BELOW the element rows (the
+                ruler above is scrubbable too). Leaving the rows uncovered keeps
+                keyframes / segment pills draggable with their own grab cursor. */}
             <div
-              className="absolute inset-0 z-[5] cursor-crosshair"
+              className="absolute left-0 right-0 bottom-0 z-[5] cursor-grab active:cursor-grabbing touch-none"
+              style={{ top: RULER_H + elements.length * ROW_H }}
               onPointerDown={startScrub}
               onPointerMove={scrubMove}
               onPointerUp={endScrub}
@@ -941,6 +991,9 @@ export const Timeline: React.FC = () => {
           </span>
           <span>
             <kbd className="bg-[#20202c] text-gray-300 px-1.5 py-0.5 rounded border border-[#2d2d3d] mr-1">← / →</kbd> Step 0.1s
+          </span>
+          <span>
+            <kbd className="bg-[#20202c] text-gray-300 px-1.5 py-0.5 rounded border border-[#2d2d3d] mr-1">Drag Red Line</kbd> Scrub Playhead
           </span>
           <span>
             <kbd className="bg-[#20202c] text-gray-300 px-1.5 py-0.5 rounded border border-[#2d2d3d] mr-1">Drag Segment</kbd> Adjust Timing
