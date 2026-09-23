@@ -574,7 +574,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#232330]">
               <div>
                 <h3 className="font-semibold text-gray-50 text-sm">Edit ISI content</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Rich HTML G�� double-click the ISI tray on canvas to reopen</p>
+                <p className="text-xs text-gray-400 mt-0.5">Rich HTML double-click the ISI tray on canvas to reopen</p>
               </div>
               <button onClick={commitISI} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
             </div>
@@ -634,7 +634,7 @@ export const DesignCanvas: React.FC = () => {
     canvasBackgroundImage,
   } = useDesignStore();
 
-  // Live stage instances by artboard id G�� lets exports grab the focused board's stage.
+  // Live stage instances by artboard id G lets exports grab the focused board's stage.
   const stageRegistry = useRef<Map<string, Konva.Stage>>(new Map());
   const registerStage = useCallback((id: string, stage: Konva.Stage | null) => {
     if (stage) stageRegistry.current.set(id, stage);

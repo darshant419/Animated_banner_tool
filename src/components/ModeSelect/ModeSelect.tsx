@@ -53,8 +53,8 @@ export const ModeSelect: React.FC<ModeSelectProps> = ({ onSelect }) => {
  </div>
  </div>
  <div className="mt-6 rounded-xl border border-[#2a2a35] bg-[#1a1a21] p-4">
- <div className="text-xs text-gray-500">Default size</div>
- <div className="mt-1 text-sm font-semibold text-gray-100">300 x 250</div>
+ <div className="text-xs text-gray-500">Static banners</div>
+ <div className="mt-1 text-sm font-semibold text-gray-100">All sizes</div>
  </div>
  </button>
 
