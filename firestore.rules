@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Projects Collection
+    match /projects/{projectId} {
+      allow read, write: if true; // In production, replace with: if request.auth != null
+    }
+
+    // Assets Metadata Collection
+    match /assets/{assetId} {
+      allow read, write: if true; // In production, replace with: if request.auth != null
+    }
+
+    // Templates Collection
+    match /templates/{templateId} {
+      allow read: if true;
+      allow write: if true;
+    }
+  }
+}

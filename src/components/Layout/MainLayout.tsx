@@ -2,7 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { Toolbar, type ToolType } from '../Toolbar/Toolbar';
 import { PropertiesPanel } from '../PropertiesPanel/PropertiesPanel';
 import { DesignCanvas } from '../Canvas/DesignCanvas';
-import { Layout, Layers, Undo2, Redo2, RefreshCcw, Play, Pause, Plus, Download, FileCode2, ChevronDown } from 'lucide-react';
+import {
+    Layout,
+    Layers,
+    Undo2,
+    Redo2,
+    RefreshCcw,
+    Play,
+    Pause,
+    Plus,
+    Download,
+    FileCode2,
+    ChevronDown,
+    Save,
+    FolderOpen,
+    Loader2,
+    Check,
+    Cloud,
+} from 'lucide-react';
 import { useDesignStore, getArtboardPresets } from '../../store/designStore';
 import { VariationsPanel } from '../Variations/VariationsPanel';
 import { TemplatesPanel } from '../TemplatesPanel/TemplatesPanel';
@@ -10,8 +27,12 @@ import { AssetsPanel } from '../AssetsPanel/AssetsPanel';
 import { LayersPanel } from '../LayersPanel/LayersPanel';
 import { Timeline } from '../Timeline/Timeline';
 import { AnimationDialog } from '../AnimationDialog/AnimationDialog';
+import { ProjectsModal } from '../Projects/ProjectsModal';
 import type { AppMode } from '../ModeSelect/ModeSelect';
 import { getTemplateById } from '../../templates/emrTemplates';
+import { saveProjectToFirestore } from '../../services/projectService';
+import { uploadProjectThumbnail } from '../../services/storageService';
+import { isFirebaseConfigured } from '../../services/firebase';
 
 type MainLayoutProps = {
     mode: AppMode;
@@ -36,14 +57,35 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         addCampaignSizes,
         isPlaying,
         setIsPlaying,
+        // Project metadata
+        projectId,
+        projectName,
+        setProjectId,
+        setProjectName,
+        isSaving,
+        setIsSaving,
+        lastSavedAt,
+        setLastSavedAt,
+        // Canvas attributes
+        canvasWidth,
+        canvasHeight,
+        totalDuration,
+        loop,
+        canvasBackground,
+        canvasBackgroundImage,
+        elements,
     } = useDesignStore();
 
     const [activeTool, setActiveTool] = useState<ToolType>('select');
     const [showAddArtboard, setShowAddArtboard] = useState(false);
     const [showCampaign, setShowCampaign] = useState(false);
+    const [showProjectsModal, setShowProjectsModal] = useState(false);
     const [campaignSelection, setCampaignSelection] = useState<Set<string>>(new Set());
     const [isAnimationStudioOpen, setIsAnimationStudioOpen] = useState(false);
     const [animationStudioTab, setAnimationStudioTab] = useState<'in' | 'out' | 'sequence'>('in');
+    const [saveSuccess, setSaveSuccess] = useState(false);
+
+    const isCloud = isFirebaseConfigured();
 
     useEffect(() => {
         const handleOpenStudio = (e: Event) => {
@@ -72,11 +114,74 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         setCampaignSelection(new Set());
     };
 
+    const handleSaveProject = async () => {
+        setIsSaving(true);
+        setSaveSuccess(false);
+
+        try {
+            // Request canvas thumbnail snapshot from canvas
+            let thumbnailUrl: string | undefined = undefined;
+            const thumbnailPromise = new Promise<string | null>((resolve) => {
+                const timeout = setTimeout(() => resolve(null), 500);
+                window.dispatchEvent(
+                    new CustomEvent('get-canvas-thumbnail', {
+                        detail: {
+                            callback: (dataUrl: string | null) => {
+                                clearTimeout(timeout);
+                                resolve(dataUrl);
+                            },
+                        },
+                    })
+                );
+            });
+
+            const thumbnailDataUrl = await thumbnailPromise;
+            const targetId = projectId || `proj_${Date.now()}`;
+
+            if (thumbnailDataUrl) {
+                try {
+                    thumbnailUrl = await uploadProjectThumbnail(thumbnailDataUrl, targetId);
+                } catch (e) {
+                    console.warn('Could not upload thumbnail to storage:', e);
+                }
+            }
+
+            const savedId = await saveProjectToFirestore({
+                id: projectId || undefined,
+                name: projectName || 'Untitled Banner',
+                mode,
+                thumbnailUrl,
+                canvasWidth,
+                canvasHeight,
+                totalDuration,
+                loop,
+                canvasBackground,
+                canvasBackgroundImage,
+                artboards,
+                elements,
+                version: 1,
+            });
+
+            setProjectId(savedId);
+            setLastSavedAt(Date.now());
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 2500);
+        } catch (err) {
+            console.error('Failed to save project:', err);
+            alert('Failed to save project. Check console for error details.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             const isCtrlOrCmd = e.ctrlKey || e.metaKey;
 
-            if (isCtrlOrCmd && e.key === 'z') {
+            if (isCtrlOrCmd && e.key === 's') {
+                e.preventDefault();
+                handleSaveProject();
+            } else if (isCtrlOrCmd && e.key === 'z') {
                 e.preventDefault();
                 if (e.shiftKey) redo();
                 else undo();
@@ -94,7 +199,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [undo, redo, removeElement, selectedId]);
+    }, [undo, redo, removeElement, selectedId, projectId, projectName, canvasWidth, canvasHeight, elements, artboards]);
 
     useEffect(() => {
         if (mode === 'animated') {
@@ -118,7 +223,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-[#1e1e26]">
             {/* Header */}
-            <header className="h-14 bg-black border-b border-white/10 flex items-center px-4 gap-4 shrink-0">
+            <header className="h-14 bg-black border-b border-white/10 flex items-center px-4 gap-3 shrink-0">
                 <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center text-white shadow-sm">
                         <Layout size={18} />
@@ -145,6 +250,57 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                         </button>
                     )}
                 </div>
+
+                <div className="h-6 w-px bg-white/10" />
+
+                {/* Project Title & Library Button */}
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setShowProjectsModal(true)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition"
+                        title="Browse saved banner projects"
+                    >
+                        <FolderOpen size={13} className="text-red-400" />
+                        <span>Projects</span>
+                    </button>
+
+                    <input
+                        type="text"
+                        value={projectName}
+                        onChange={(e) => setProjectName(e.target.value)}
+                        placeholder="Untitled Banner"
+                        className="bg-transparent hover:bg-white/5 focus:bg-[#15151c] border border-transparent hover:border-white/10 focus:border-red-500 rounded px-2 py-1 text-xs font-semibold text-gray-100 focus:outline-none transition w-40 max-w-[180px] truncate"
+                        title="Click to rename banner project"
+                    />
+
+                    <button
+                        onClick={handleSaveProject}
+                        disabled={isSaving}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium border transition ${
+                            saveSuccess
+                                ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40'
+                                : 'bg-red-600 hover:bg-red-700 text-white border-red-500'
+                        }`}
+                        title="Save project to Firestore (Ctrl+S)"
+                    >
+                        {isSaving ? (
+                            <Loader2 size={12} className="animate-spin" />
+                        ) : saveSuccess ? (
+                            <Check size={12} />
+                        ) : (
+                            <Save size={12} />
+                        )}
+                        <span>{isSaving ? 'Saving...' : saveSuccess ? 'Saved' : 'Save'}</span>
+                    </button>
+
+                    {lastSavedAt && !saveSuccess && (
+                        <span className="text-[10px] text-gray-400 hidden xl:inline">
+                            Saved {new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                    )}
+                </div>
+
+                <div className="h-6 w-px bg-white/10" />
 
                 {/* Artboards */}
                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -336,6 +492,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                 isOpen={isAnimationStudioOpen}
                 onClose={() => setIsAnimationStudioOpen(false)}
                 initialTab={animationStudioTab}
+            />
+
+            {/* Projects Library Modal */}
+            <ProjectsModal
+                isOpen={showProjectsModal}
+                onClose={() => setShowProjectsModal(false)}
             />
 
         </div>

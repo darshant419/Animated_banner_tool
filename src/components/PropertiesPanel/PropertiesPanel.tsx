@@ -5,8 +5,9 @@ import { EASINGS } from '../../utils/keyframes';
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
     AlignLeft, AlignCenter, AlignRight,
-    Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles,
+    Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles, Loader2, Upload,
 } from 'lucide-react';
+import { uploadMediaAsset } from '../../services/storageService';
 
 export const PropertiesPanel: React.FC = () => {
     const {
@@ -103,14 +104,36 @@ export const PropertiesPanel: React.FC = () => {
                                 </div>
                             </div>
                             <div>
-                                <label className="text-xs text-gray-400 mb-1 block">Image URL</label>
-                                <input
-                                    type="text"
-                                    placeholder="https://..."
-                                    value={canvasBackgroundImage || ''}
-                                    onChange={(e) => setCanvasBackgroundImage(e.target.value || undefined)}
-                                    className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                />
+                                <label className="text-xs text-gray-400 mb-1 block">Background Image</label>
+                                <div className="flex gap-1.5">
+                                    <input
+                                        type="text"
+                                        placeholder="https://..."
+                                        value={canvasBackgroundImage || ''}
+                                        onChange={(e) => setCanvasBackgroundImage(e.target.value || undefined)}
+                                        className="flex-1 border border-[#2a2a35] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                    />
+                                    <label className="px-2 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium rounded border border-red-500/30 cursor-pointer transition flex items-center gap-1 shrink-0">
+                                        <Upload size={12} />
+                                        <span>Upload</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                try {
+                                                    const res = await uploadMediaAsset(file);
+                                                    setCanvasBackgroundImage(res.downloadUrl);
+                                                } catch (err) {
+                                                    console.error('Failed to upload bg image:', err);
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                        />
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1021,17 +1044,15 @@ return (
                                                 type="file"
                                                 accept="image/*"
                                                 className="hidden"
-                                                onChange={(e) => {
+                                                onChange={async (e) => {
                                                     const file = e.target.files?.[0];
                                                     if (!file) return;
-                                                    const reader = new FileReader();
-                                                    reader.onload = (ev) => {
-                                                        const result = ev.target?.result;
-                                                        if (typeof result === 'string') {
-                                                            handleChange('isiLogoSrc', result);
-                                                        }
-                                                    };
-                                                    reader.readAsDataURL(file);
+                                                    try {
+                                                        const res = await uploadMediaAsset(file);
+                                                        handleChange('isiLogoSrc', res.downloadUrl);
+                                                    } catch (err) {
+                                                        console.error('Failed to upload ISI logo:', err);
+                                                    }
                                                     e.target.value = '';
                                                 }}
                                             />

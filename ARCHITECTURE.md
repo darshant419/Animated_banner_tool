@@ -374,13 +374,16 @@ DesignElement (union type)
 ### 5. **State Persistence**
 - Zustand-based reactive state
 - Undo/Redo history with state snapshots
-- Design persistence (via local state)
+- Cloud Firestore for banner project documents and asset metadata
+- Firebase Storage for media asset files (blobs) and banner thumbnails
 
 ## Technology Stack
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
 | **UI Framework** | React 19.2 | Component-based UI |
+| **Database** | Cloud Firestore | Banner projects & asset metadata storage |
+| **Blob Storage** | Firebase Storage | Images, videos, GIFs, project thumbnails |
 | **State Management** | Zustand 5.0 | Global state with history |
 | **Canvas Rendering** | Konva 10.0 + react-konva 19.2 | 2D canvas drawing |
 | **Animation Engine** | GSAP 3.14 | Professional animations |
@@ -390,7 +393,7 @@ DesignElement (union type)
 | **Testing** | Vitest 4.1 | Unit & integration tests |
 | **Linting** | ESLint 9.3 | Code quality |
 | **Icons** | Lucide React | Icon library |
-| **Utilities** | jszip, clsx, tailwind-merge | Helper libraries |
+| **Utilities** | firebase, jszip, clsx, tailwind-merge | Helper libraries |
 
 ## File Structure Organization
 

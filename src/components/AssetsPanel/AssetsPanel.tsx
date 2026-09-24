@@ -1,51 +1,42 @@
-import React, { useState, useRef } from 'react';
-import { Search, Upload, Image as ImageIcon, Video, Film, X } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search, Upload, Image as ImageIcon, Video, Film, X, Loader2, Cloud, HardDrive } from 'lucide-react';
 import { useDesignStore } from '../../store/designStore';
+import {
+    subscribeToAssets,
+    uploadAndSaveAsset,
+    deleteAsset,
+    type FirebaseAsset,
+} from '../../services/assetService';
+import { isFirebaseConfigured } from '../../services/firebase';
 
 let assetIdCounter = 0;
 const nextElementId = () => `el-asset-${++assetIdCounter}`;
 
-const STORAGE_KEY = 'banner_tool_uploaded_assets';
-
-interface UploadedAsset {
-    id: string;
-    name: string;
-    dataUrl: string;
-    type: string;
-    size: number;
-    addedAt: number;
-}
-
 export const AssetsPanel: React.FC = () => {
     const { addElement } = useDesignStore();
     const [search, setSearch] = useState('');
-    const [uploadedAssets, setUploadedAssets] = useState<UploadedAsset[]>(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) return JSON.parse(stored);
-        } catch (e) {
-            console.warn('Failed to load uploaded assets:', e);
-        }
-        return [];
-    });
+    const [assets, setAssets] = useState<FirebaseAsset[]>([]);
+    const [uploadingCount, setUploadingCount] = useState(0);
+    const [uploadProgress, setUploadProgress] = useState<number>(0);
+    const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const saveUploadedAssets = (assets: UploadedAsset[]) => {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(assets));
-            setUploadedAssets(assets);
-        } catch (e) {
-            console.warn('Failed to save uploaded assets:', e);
-        }
-    };
+    const isCloud = isFirebaseConfigured();
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    useEffect(() => {
+        const unsubscribe = subscribeToAssets((loadedAssets) => {
+            setAssets(loadedAssets);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
         const allowedTypes = ['image/', 'video/'];
-        const validFiles = Array.from(files).filter(file => 
-            allowedTypes.some(type => file.type.startsWith(type))
+        const validFiles = Array.from(files).filter((file) =>
+            allowedTypes.some((type) => file.type.startsWith(type))
         );
 
         if (validFiles.length === 0) {
@@ -53,37 +44,40 @@ export const AssetsPanel: React.FC = () => {
             return;
         }
 
-        const newAssets: UploadedAsset[] = validFiles.map(file => ({
-            id: `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: file.name,
-            dataUrl: '',
-            type: file.type,
-            size: file.size,
-            addedAt: Date.now(),
-        }));
+        setUploadingCount(validFiles.length);
+        setUploadProgress(0);
 
-        const readers = newAssets.map((asset, i) => {
-            return new Promise<UploadedAsset>((resolve) => {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    resolve({ ...asset, dataUrl: event.target?.result as string });
-                };
-                reader.readAsDataURL(validFiles[i]);
-            });
-        });
-
-        Promise.all(readers).then((loadedAssets) => {
-            saveUploadedAssets([...loadedAssets, ...uploadedAssets]);
-        });
-
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        try {
+            for (let i = 0; i < validFiles.length; i++) {
+                const file = validFiles[i];
+                await uploadAndSaveAsset(file, (pct) => {
+                    const overall = Math.round(((i + pct / 100) / validFiles.length) * 100);
+                    setUploadProgress(overall);
+                });
+            }
+        } catch (err) {
+            console.error('Upload failed:', err);
+            alert('One or more files failed to upload. Check console for details.');
+        } finally {
+            setUploadingCount(0);
+            setUploadProgress(0);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
     };
 
-    const deleteUploadedAsset = (id: string) => {
-        saveUploadedAssets(uploadedAssets.filter(a => a.id !== id));
+    const handleDeleteAsset = async (asset: FirebaseAsset) => {
+        try {
+            setIsDeleting(asset.id);
+            await deleteAsset(asset);
+        } catch (err) {
+            console.error('Delete failed:', err);
+            alert('Failed to delete asset.');
+        } finally {
+            setIsDeleting(null);
+        }
     };
 
-    const addUploadedAsset = (asset: UploadedAsset) => {
+    const addUploadedAsset = (asset: FirebaseAsset) => {
         const isVideo = asset.type.startsWith('video/');
         addElement({
             id: nextElementId(),
@@ -92,11 +86,14 @@ export const AssetsPanel: React.FC = () => {
             y: 100,
             width: isVideo ? 320 : 200,
             height: isVideo ? 180 : 150,
-            src: asset.dataUrl,
+            src: asset.downloadUrl,
+            name: asset.name,
         });
     };
 
-    const filteredUploads = uploadedAssets.filter(a => a.name.toLowerCase().includes(search.toLowerCase()));
+    const filteredUploads = assets.filter((a) =>
+        a.name.toLowerCase().includes(search.toLowerCase())
+    );
 
     const getFileIcon = (type: string) => {
         if (type.startsWith('video/')) return <Video size={16} className="text-white" />;
@@ -108,35 +105,65 @@ export const AssetsPanel: React.FC = () => {
         <div className="w-80 bg-[#15151c] border-r border-[#2a2a35] flex flex-col h-full z-10">
             <div className="p-4 border-b border-[#232330]">
                 <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-sm font-semibold text-gray-100">Assets</h2>
-                    <label className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-medium rounded border border-red-500/30 cursor-pointer transition-colors"
-                        title="Upload image, video, or GIF">
-                        <Upload size={12} />
-                        <span>Upload</span>
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-sm font-semibold text-gray-100">Assets</h2>
+                        <span
+                            className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                isCloud
+                                    ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                            }`}
+                            title={isCloud ? 'Connected to Firebase Storage & Firestore' : 'Running in Local mode. Add Firebase keys in .env for Cloud storage.'}
+                        >
+                            {isCloud ? <Cloud size={10} /> : <HardDrive size={10} />}
+                            {isCloud ? 'Firebase' : 'Local'}
+                        </span>
+                    </div>
+                    <label
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-medium rounded border border-red-500/30 cursor-pointer transition-colors"
+                        title="Upload image, video, or GIF to Cloud Storage"
+                    >
+                        {uploadingCount > 0 ? (
+                            <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                            <Upload size={12} />
+                        )}
+                        <span>{uploadingCount > 0 ? `Uploading (${uploadProgress}%)` : 'Upload'}</span>
                         <input
                             ref={fileInputRef}
                             type="file"
                             accept="image/*,video/*"
                             multiple
+                            disabled={uploadingCount > 0}
                             className="hidden"
                             onChange={handleFileUpload}
                         />
                     </label>
                 </div>
 
+                {uploadingCount > 0 && (
+                    <div className="w-full bg-[#232330] rounded-full h-1.5 mb-3 overflow-hidden">
+                        <div
+                            className="bg-red-500 h-full transition-all duration-200"
+                            style={{ width: `${uploadProgress}%` }}
+                        />
+                    </div>
+                )}
+
                 <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={14} />
                     <input
                         type="text"
-                        placeholder="Search uploads..."
-                        className="w-full pl-9 pr-4 py-2 bg-[#1a1a21] border border-[#232330] rounded-md text-sm focus:outline-none focus:border-red-500"
+                        placeholder="Search assets..."
+                        className="w-full pl-9 pr-4 py-2 bg-[#1a1a21] border border-[#232330] rounded-md text-sm focus:outline-none focus:border-red-500 text-gray-100 placeholder-gray-500"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
 
-                <div className="mt-2 text-[11px] text-gray-500">
-                    {uploadedAssets.length} file{uploadedAssets.length !== 1 ? 's' : ''} uploaded
+                <div className="mt-2 text-[11px] text-gray-500 flex justify-between items-center">
+                    <span>{assets.length} file{assets.length !== 1 ? 's' : ''} available</span>
+                    {isCloud && <span className="text-blue-400/80 text-[10px]">Cloud Synced</span>}
                 </div>
             </div>
 
@@ -153,19 +180,19 @@ export const AssetsPanel: React.FC = () => {
                         {filteredUploads.map((asset) => (
                             <div
                                 key={asset.id}
-                                className="relative aspect-square bg-[#1a1a21] rounded-lg overflow-hidden hover:bg-red-500/10 transition-colors group cursor-pointer"
+                                className="relative aspect-square bg-[#1a1a21] rounded-lg overflow-hidden hover:bg-red-500/10 transition-colors group cursor-pointer border border-[#232330] hover:border-red-500/50"
                                 onClick={() => addUploadedAsset(asset)}
                             >
                                 {asset.type.startsWith('video/') ? (
                                     <video
-                                        src={asset.dataUrl}
+                                        src={asset.downloadUrl}
                                         className="w-full h-full object-cover"
                                         muted
                                         preload="metadata"
                                     />
                                 ) : (
                                     <img
-                                        src={asset.dataUrl}
+                                        src={asset.downloadUrl}
                                         alt={asset.name}
                                         className="w-full h-full object-cover"
                                     />
@@ -181,12 +208,17 @@ export const AssetsPanel: React.FC = () => {
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        deleteUploadedAsset(asset.id);
+                                        handleDeleteAsset(asset);
                                     }}
-                                    className="absolute top-1 right-1 p-1 bg-red-500/80 text-white rounded hover:bg-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                                    title="Delete"
+                                    disabled={isDeleting === asset.id}
+                                    className="absolute top-1 right-1 p-1 bg-red-500/80 text-white rounded hover:bg-red-500 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                                    title="Delete from Storage"
                                 >
-                                    <X size={10} />
+                                    {isDeleting === asset.id ? (
+                                        <Loader2 size={10} className="animate-spin" />
+                                    ) : (
+                                        <X size={10} />
+                                    )}
                                 </button>
                             </div>
                         ))}

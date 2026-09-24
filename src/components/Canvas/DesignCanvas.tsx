@@ -660,8 +660,25 @@ export const DesignCanvas: React.FC = () => {
         }, 0);
       }
     };
+    const handleGetThumbnail = (e: any) => {
+      const stage = activeArtboardId ? stagesRef.current.get(activeArtboardId) : null;
+      if (stage && e.detail?.callback) {
+        try {
+          const dataURL = stage.toDataURL({ pixelRatio: 1 });
+          e.detail.callback(dataURL);
+        } catch (err) {
+          console.error('Failed to export thumbnail:', err);
+          e.detail.callback(null);
+        }
+      }
+    };
+
     window.addEventListener('export-canvas', handleExport);
-    return () => window.removeEventListener('export-canvas', handleExport);
+    window.addEventListener('get-canvas-thumbnail', handleGetThumbnail as EventListener);
+    return () => {
+      window.removeEventListener('export-canvas', handleExport);
+      window.removeEventListener('get-canvas-thumbnail', handleGetThumbnail as EventListener);
+    };
   }, [selectElement, activeArtboardId, canvasWidth, canvasHeight]);
 
   // Export HTML package in traditional banner format with CSS classes and setTimeout timeline.

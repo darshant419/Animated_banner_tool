@@ -234,7 +234,27 @@ interface DesignState {
     setSize: (width: number, height: number) => void;
     setCanvasBackground: (color: string) => void;
     setCanvasBackgroundImage: (src: string | undefined) => void;
-    loadTemplate: (elements: DesignElement[], width: number, height: number, totalDuration?: number) => void;
+    // Project Metadata
+    projectId: string | null;
+    projectName: string;
+    isSaving: boolean;
+    lastSavedAt: number | null;
+    setProjectId: (id: string | null) => void;
+    setProjectName: (name: string) => void;
+    setIsSaving: (isSaving: boolean) => void;
+    setLastSavedAt: (timestamp: number | null) => void;
+    loadProjectState: (project: {
+        id: string;
+        name: string;
+        canvasWidth: number;
+        canvasHeight: number;
+        totalDuration: number;
+        loop: boolean;
+        canvasBackground: string;
+        canvasBackgroundImage?: string;
+        artboards?: Artboard[];
+        elements?: DesignElement[];
+    }) => void;
 
     undo: () => void;
     redo: () => void;
@@ -367,6 +387,16 @@ export const useDesignStore = create<DesignState>((set) => ({
     past: [],
     future: [],
 
+    // Project metadata
+    projectId: null,
+    projectName: 'Untitled Banner',
+    isSaving: false,
+    lastSavedAt: null,
+    setProjectId: (id) => set({ projectId: id }),
+    setProjectName: (name) => set({ projectName: name }),
+    setIsSaving: (isSaving) => set({ isSaving }),
+    setLastSavedAt: (timestamp) => set({ lastSavedAt: timestamp }),
+
     clearHistory: () => set({ past: [], future: [] }),
 
     reset: () => set({
@@ -387,6 +417,10 @@ export const useDesignStore = create<DesignState>((set) => ({
         multiArtboardView: false,
         past: [],
         future: [],
+        projectId: null,
+        projectName: 'Untitled Banner',
+        isSaving: false,
+        lastSavedAt: null,
     }),
 
     addElement: (element) =>
@@ -781,6 +815,36 @@ export const useDesignStore = create<DesignState>((set) => ({
                 activeArtboardId: 'art-1',
                 past: [],
                 future: [],
+            };
+        }),
+
+    loadProjectState: (project) =>
+        set(() => {
+            const cleanElements = (project.elements || []).map((el) => ({ ...el, visible: el.visible !== false }));
+            const artboards = (project.artboards && project.artboards.length > 0)
+                ? project.artboards
+                : [{ id: 'art-1', label: `${project.canvasWidth}x${project.canvasHeight}`, width: project.canvasWidth, height: project.canvasHeight, elements: cleanElements }];
+            return {
+                projectId: project.id,
+                projectName: project.name || 'Untitled Banner',
+                elements: cleanElements,
+                selectedId: null,
+                selectedKeyframe: null,
+                playheadTime: 0,
+                isPlaying: false,
+                previewPaused: false,
+                canvasWidth: project.canvasWidth || 300,
+                canvasHeight: project.canvasHeight || 250,
+                totalDuration: project.totalDuration || 10,
+                loop: project.loop ?? true,
+                canvasBackground: project.canvasBackground || '#ffffff',
+                canvasBackgroundImage: project.canvasBackgroundImage,
+                artboards,
+                activeArtboardId: artboards[0]?.id || 'art-1',
+                multiArtboardView: false,
+                past: [],
+                future: [],
+                lastSavedAt: Date.now(),
             };
         }),
 

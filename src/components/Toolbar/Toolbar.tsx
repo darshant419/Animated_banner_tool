@@ -6,6 +6,8 @@ import {
 import { useDesignStore, type ElementType } from '../../store/designStore';
 import { EMR_ISI_TEXT } from '../../templates/emrTemplates';
 
+import { uploadAndSaveAsset } from '../../services/assetService';
+
 export type ToolType =
   | 'select' | 'text' | 'upload'
   | 'isiScroll' | 'assets' | 'templates' | 'layers' | 'variations';
@@ -18,6 +20,7 @@ interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) => {
     const { addElement } = useDesignStore();
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    const [isUploading, setIsUploading] = React.useState(false);
 
     const handleToolClick = (tool: ToolType) => {
         onToolChange(tool);
@@ -63,28 +66,37 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
         }
     };
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                const img = new Image();
-                img.onload = () => {
-                    addElement({
-                        id: Date.now().toString(),
-                        type: 'image',
-                        x: 100,
-                        y: 100,
-                        width: 300,
-                        height: (300 / img.width) * img.height,
-                        src: event.target?.result as string,
-                    });
-                };
-                img.src = event.target?.result as string;
+        if (!file) return;
+
+        try {
+            setIsUploading(true);
+            const savedAsset = await uploadAndSaveAsset(file);
+
+            const img = new Image();
+            img.onload = () => {
+                const calculatedHeight = (300 / (img.width || 300)) * (img.height || 200);
+                addElement({
+                    id: Date.now().toString(),
+                    type: 'image',
+                    name: file.name,
+                    x: 100,
+                    y: 100,
+                    width: 300,
+                    height: calculatedHeight,
+                    src: savedAsset.downloadUrl,
+                });
             };
-            reader.readAsDataURL(file);
+            img.src = savedAsset.downloadUrl;
+        } catch (err) {
+            console.error('Failed to upload image:', err);
+            alert('Failed to upload image to Storage.');
+        } finally {
+            setIsUploading(false);
+            if (e.target) e.target.value = '';
+            onToolChange('select');
         }
-        onToolChange('select');
     };
 
     return (

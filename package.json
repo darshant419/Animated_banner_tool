@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "firebase": "^12.19.0",
     "gsap": "^3.14.2",
     "jszip": "^3.10.1",
     "konva": "^10.0.12",
