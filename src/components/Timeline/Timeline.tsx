@@ -4,7 +4,7 @@ import {
   Image as ImageIcon, ScrollText, Shapes, Code2, Repeat, Trash2,
   ZoomIn, ZoomOut, Sparkles, Plus, SkipBack, SkipForward,
   ChevronLeft, ChevronRight, Magnet, Maximize2, Zap, FastForward,
-  RotateCcw, Sliders, GripVertical,
+  RotateCcw, Sliders, GripVertical, Film,
 } from 'lucide-react';
 import { useDesignStore, type DesignElement } from '../../store/designStore';
 import { seekAllMasters } from '../Canvas/AnimationHelpers';
@@ -15,14 +15,13 @@ import {
   type ElementAnimationSegment,
 } from '../../utils/keyframes';
 
-const ROW_H = 38;
-/** Height of the ruler strip (Tailwind `h-7`) that sits above the element rows. */
+const ROW_H = 44;
 const RULER_H = 28;
 const DEFAULT_PPS = 100;
 const MIN_PPS = 30;
 const MAX_PPS = 240;
 
-const typeIcon = (type: DesignElement['type'], size = 14) => {
+const typeIcon = (type: DesignElement['type'], size = 13) => {
   switch (type) {
     case 'text': return <Type size={size} />;
     case 'rect': return <Square size={size} />;
@@ -36,6 +35,45 @@ const typeIcon = (type: DesignElement['type'], size = 14) => {
 
 const elementLabel = (el: DesignElement) =>
   el.name || `${el.type.charAt(0).toUpperCase() + el.type.slice(1)} ${el.id.slice(-4)}`;
+
+// TheBrief-style segment colors
+const SEGMENT_STYLES = {
+  enter: {
+    bg: 'bg-gradient-to-r from-[#1bbfa7] to-[#0ea99a]',
+    border: 'border-[#1bbfa7]/50',
+    shadow: 'shadow-[#1bbfa7]/20',
+    dot: 'bg-[#1bbfa7]',
+    label: 'text-white',
+  },
+  exit: {
+    bg: 'bg-gradient-to-r from-[#e4567d] to-[#c73d6c]',
+    border: 'border-[#e4567d]/50',
+    shadow: 'shadow-[#e4567d]/20',
+    dot: 'bg-[#e4567d]',
+    label: 'text-white',
+  },
+  loop: {
+    bg: 'bg-gradient-to-r from-[#9b7df8] to-[#7c5de8]',
+    border: 'border-[#9b7df8]/50',
+    shadow: 'shadow-[#9b7df8]/20',
+    dot: 'bg-[#9b7df8]',
+    label: 'text-white',
+  },
+  main: {
+    bg: 'bg-gradient-to-r from-[#4d9de0] to-[#3680cc]',
+    border: 'border-[#4d9de0]/50',
+    shadow: 'shadow-[#4d9de0]/20',
+    dot: 'bg-[#4d9de0]',
+    label: 'text-white',
+  },
+};
+
+const getSegmentStyle = (segId: string) => {
+  if (segId === 'enter') return SEGMENT_STYLES.enter;
+  if (segId === 'exit') return SEGMENT_STYLES.exit;
+  if (segId === 'loop' || segId === 'main') return SEGMENT_STYLES.main;
+  return SEGMENT_STYLES.loop;
+};
 
 export const Timeline: React.FC = () => {
   const {
@@ -78,7 +116,6 @@ export const Timeline: React.FC = () => {
     initialDuration: number;
   } | null>(null);
 
-  // Drag-to-reorder element rows (vertical z-order).
   const rowDragRef = useRef<{
     id: string;
     fromIndex: number;
@@ -89,29 +126,17 @@ export const Timeline: React.FC = () => {
     captured: boolean;
     overIndex: number;
   } | null>(null);
-  /** Rendered while a row drag is in progress (drives the drop line + lifted row). */
   const [rowDragOver, setRowDragOver] = useState<{ id: string; fromIndex: number; overIndex: number; dy: number } | null>(null);
   const leftRowsRef = useRef<HTMLDivElement>(null);
   const rightRowsRef = useRef<HTMLDivElement>(null);
 
   const lastTimeRef = useRef<number>(0);
-
-  // Local playhead used to render the needle + timecode smoothly at 60fps while
-  // the global store is only synced ~30x/sec (so panels don't re-render per frame).
   const [uiTime, setUiTime] = useState(playheadTime);
-  // Ref to the playhead needle DOM element for direct manipulation (avoids
-  // re-rendering the whole timeline on every animation frame).
   const needleRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef(playheadTime);
   const lastStoreSyncRef = useRef(0);
 
   const trackWidth = Math.max(800, totalDuration * pps + 120);
-
-  // The tracks rail must always be at least as tall as the visible workspace so
-  // the red playhead line runs the FULL height of the timeline (instead of
-  // stopping right under the last element row). `min-h-full` alone relies on the
-  // scroll container having a resolvable definite height, so we also measure the
-  // workspace explicitly and feed it back as an inline min-height.
   const [trackMinHeight, setTrackMinHeight] = useState(0);
 
   useLayoutEffect(() => {
@@ -128,8 +153,6 @@ export const Timeline: React.FC = () => {
     return () => observer.disconnect();
   }, []);
 
-  // When not playing, keep the local playhead in sync with the store (scrub,
-  // undo, keyboard stepping, loading templates, etc.).
   useEffect(() => {
     if (!isPlaying) {
       setUiTime(playheadTime);
@@ -137,9 +160,6 @@ export const Timeline: React.FC = () => {
     }
   }, [isPlaying, playheadTime]);
 
-  // Playback loop — advances every frame, drives every board's canvas at 60fps
-  // via gsap seeks, renders the needle from local state, and throttles writes to
-  // the global store so the whole app doesn't re-render on every animation frame.
   useEffect(() => {
     if (!isPlaying) return;
     let raf: number;
@@ -155,32 +175,24 @@ export const Timeline: React.FC = () => {
         if (next >= totalDuration) {
           if (loop) {
             playheadRef.current = 0;
-            if (needleRef.current) {
-              needleRef.current.style.transform = `translateX(0px)`;
-            }
+            if (needleRef.current) needleRef.current.style.transform = `translateX(0px)`;
             setUiTime(0);
             setPlayheadTime(0);
             seekAllMasters(0);
           } else {
             playheadRef.current = totalDuration;
-            if (needleRef.current) {
-              needleRef.current.style.transform = `translateX(${totalDuration * pps}px)`;
-            }
+            if (needleRef.current) needleRef.current.style.transform = `translateX(${totalDuration * pps}px)`;
             setUiTime(totalDuration);
             setPlayheadTime(totalDuration);
             seekAllMasters(totalDuration);
             setIsPlaying(false);
-            return; // effect cleanup on isPlaying change cancels the loop
+            return;
           }
         } else {
           playheadRef.current = next;
           setUiTime(next);
-          // Update needle position directly via DOM (no re-render needed)
-          if (needleRef.current) {
-            needleRef.current.style.transform = `translateX(${next * pps}px)`;
-          }
+          if (needleRef.current) needleRef.current.style.transform = `translateX(${next * pps}px)`;
           seekAllMasters(next);
-          // Throttle the global sync so panels re-render at most ~30x/sec.
           if (now - lastStoreSyncRef.current >= 33) {
             lastStoreSyncRef.current = now;
             setPlayheadTime(next);
@@ -194,13 +206,8 @@ export const Timeline: React.FC = () => {
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-    // playheadTime intentionally not a dependency — we track it in a ref.
-    // `pps` IS a dependency: the needle is positioned in pixels via DOM, so a
-    // zoom change mid-playback must refresh the closure (the RAF loop simply
-    // restarts; playheadRef preserves the position).
   }, [isPlaying, totalDuration, loop, setPlayheadTime, setIsPlaying, previewPaused, pps]);
 
-  // Convert clientX to timeline seconds with optional grid snapping
   const timeFromEvent = useCallback(
     (clientX: number, snap = snapToGrid) => {
       const rect = trackRef.current?.getBoundingClientRect();
@@ -216,15 +223,11 @@ export const Timeline: React.FC = () => {
     [pps, totalDuration, snapToGrid],
   );
 
-  // Scrubbing
   const scrubTo = (t: number) => {
     setPlayheadTime(t);
     playheadRef.current = t;
     setUiTime(t);
-    // Update needle position directly during scrubbing
-    if (needleRef.current) {
-      needleRef.current.style.transform = `translateX(${t * pps}px)`;
-    }
+    if (needleRef.current) needleRef.current.style.transform = `translateX(${t * pps}px)`;
   };
 
   const startScrub = (e: React.PointerEvent) => {
@@ -238,38 +241,29 @@ export const Timeline: React.FC = () => {
     scrubTo(timeFromEvent(e.clientX, false));
   };
 
-  const endScrub = () => {
-    scrubRef.current.active = false;
-  };
+  const endScrub = () => { scrubRef.current.active = false; };
 
-  // Keyboard controls
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-
     if (e.key === ' ' || e.code === 'Space') {
       e.preventDefault();
       setIsPlaying(!isPlaying);
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      const step = e.shiftKey ? 0.5 : 0.1;
-      scrubTo(Math.max(0, playheadTime - step));
+      scrubTo(Math.max(0, playheadTime - (e.shiftKey ? 0.5 : 0.1)));
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
-      const step = e.shiftKey ? 0.5 : 0.1;
-      scrubTo(Math.min(totalDuration, playheadTime + step));
+      scrubTo(Math.min(totalDuration, playheadTime + (e.shiftKey ? 0.5 : 0.1)));
     } else if (e.key === 'Home') {
-      e.preventDefault();
-      scrubTo(0);
+      e.preventDefault(); scrubTo(0);
     } else if (e.key === 'End') {
-      e.preventDefault();
-      scrubTo(totalDuration);
+      e.preventDefault(); scrubTo(totalDuration);
     } else if (selectedKeyframe && (e.key === 'Delete' || e.key === 'Backspace')) {
       e.preventDefault();
       removeKeyframe(selectedKeyframe.elementId, selectedKeyframe.keyframeId);
     }
   };
 
-  // Add Keyframe at clicked spot
   const handleAddKeyframe = (el: DesignElement) => (e: React.MouseEvent) => {
     if (e.detail !== 2) return;
     const time = timeFromEvent(e.clientX);
@@ -277,8 +271,7 @@ export const Timeline: React.FC = () => {
     addKeyframe(el.id, {
       id: `kf-${Date.now()}`,
       time,
-      x: base.x,
-      y: base.y,
+      x: base.x, y: base.y,
       opacity: base.opacity,
       rotation: base.rotation,
       scaleX: base.scaleX,
@@ -288,7 +281,6 @@ export const Timeline: React.FC = () => {
     });
   };
 
-  // Add Keyframe at current playhead position for selected element
   const addKeyframeAtPlayhead = () => {
     if (!selectedId) return;
     const el = elements.find((x) => x.id === selectedId);
@@ -297,8 +289,7 @@ export const Timeline: React.FC = () => {
     addKeyframe(el.id, {
       id: `kf-${Date.now()}`,
       time: Math.round(playheadTime * 100) / 100,
-      x: base.x,
-      y: base.y,
+      x: base.x, y: base.y,
       opacity: base.opacity,
       rotation: base.rotation,
       scaleX: base.scaleX,
@@ -308,10 +299,8 @@ export const Timeline: React.FC = () => {
     });
   };
 
-  // Dragging keyframes
   const startDragKf = (el: DesignElement, kfId: string) => (e: React.PointerEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+    e.stopPropagation(); e.preventDefault();
     selectKeyframe({ elementId: el.id, keyframeId: kfId });
     dragKfRef.current = { elementId: el.id, keyframeId: kfId };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -323,18 +312,14 @@ export const Timeline: React.FC = () => {
     updateKeyframe(dragKfRef.current.elementId, dragKfRef.current.keyframeId, { time });
   };
 
-  const endDragKf = () => {
-    dragKfRef.current = null;
-  };
+  const endDragKf = () => { dragKfRef.current = null; };
 
-  // Dragging / Resizing Segment Bars
   const startDragSegment = (
     el: DesignElement,
     segment: ElementAnimationSegment,
     type: 'move' | 'resize-end',
   ) => (e: React.PointerEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+    e.stopPropagation(); e.preventDefault();
     selectElement(el.id);
     dragSegmentRef.current = {
       elementId: el.id,
@@ -351,41 +336,26 @@ export const Timeline: React.FC = () => {
     if (!dragSegmentRef.current) return;
     const { elementId, segmentId, type, startX, initialStart, initialDuration } = dragSegmentRef.current;
     const deltaSeconds = (e.clientX - startX) / pps;
-
     if (type === 'move') {
       const newStart = Math.max(0, Math.round((initialStart + deltaSeconds) * 20) / 20);
-      if (segmentId === 'enter') {
-        updateElement(elementId, { enterDelay: newStart });
-      } else if (segmentId === 'exit') {
-        updateElement(elementId, { exitDelay: newStart });
-      } else {
-        updateElement(elementId, { animationDelay: newStart });
-      }
+      if (segmentId === 'enter') updateElement(elementId, { enterDelay: newStart });
+      else if (segmentId === 'exit') updateElement(elementId, { exitDelay: newStart });
+      else updateElement(elementId, { animationDelay: newStart });
     } else if (type === 'resize-end') {
       const newDuration = Math.max(0.1, Math.round((initialDuration + deltaSeconds) * 20) / 20);
       updateElement(elementId, { animationDuration: newDuration });
     }
   };
 
-  const endDragSegment = () => {
-    dragSegmentRef.current = null;
-  };
+  const endDragSegment = () => { dragSegmentRef.current = null; };
 
-  // --- Drag rows to rearrange z-order (bottom row = bottom of the stack) ---
   const startRowDrag = (el: DesignElement, fromIndex: number, side: 'left' | 'right') => (e: React.PointerEvent) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     selectElement(el.id);
     rowDragRef.current = {
-      id: el.id,
-      fromIndex,
-      pointerId: e.pointerId,
-      startY: e.clientY,
-      side,
-      thresholdPassed: false,
-      captured: false,
-      overIndex: fromIndex,
+      id: el.id, fromIndex, pointerId: e.pointerId, startY: e.clientY,
+      side, thresholdPassed: false, captured: false, overIndex: fromIndex,
     };
   };
 
@@ -393,28 +363,21 @@ export const Timeline: React.FC = () => {
     const d = rowDragRef.current;
     if (!d) return;
     const dy = e.clientY - d.startY;
-
-    // Small dead-zone so plain clicks still select the row / hit row buttons.
     if (!d.thresholdPassed) {
       if (Math.abs(dy) < 10) return;
       d.thresholdPassed = true;
-      // Capture only once the drag is real so child buttons keep their clicks.
       if (!d.captured) {
         d.captured = true;
         (e.currentTarget as HTMLElement).setPointerCapture(d.pointerId);
       }
     }
     e.preventDefault();
-
-    // Auto-scroll the list when hovering near its top / bottom edge.
     const scroller = d.side === 'left' ? leftRowsRef.current : scrollContainerRef.current;
     if (scroller) {
       const rect = scroller.getBoundingClientRect();
       if (e.clientY < rect.top + 28) scroller.scrollTop -= 12;
       else if (e.clientY > rect.bottom - 28) scroller.scrollTop += 12;
     }
-
-    // Map the pointer Y to a row index (scroll-aware per side).
     let yContent: number;
     if (d.side === 'left') {
       const box = leftRowsRef.current;
@@ -426,12 +389,8 @@ export const Timeline: React.FC = () => {
       yContent = e.clientY - box.getBoundingClientRect().top;
     }
     const pointerRow = Math.max(0, Math.min(elements.length - 1, Math.floor(yContent / ROW_H)));
-
-    // Final-position semantics: dragging up inserts at the hovered row's slot,
-    // dragging down inserts one below it (so the row follows the cursor).
     let overIndex = pointerRow;
     if (pointerRow > d.fromIndex) overIndex = Math.min(elements.length, pointerRow + 1);
-
     d.overIndex = overIndex;
     setRowDragOver({ id: d.id, fromIndex: d.fromIndex, overIndex, dy });
   };
@@ -440,13 +399,10 @@ export const Timeline: React.FC = () => {
     const d = rowDragRef.current;
     if (!d) return;
     rowDragRef.current = null;
-    if (d.thresholdPassed && d.overIndex !== d.fromIndex) {
-      moveElement(d.id, d.overIndex);
-    }
+    if (d.thresholdPassed && d.overIndex !== d.fromIndex) moveElement(d.id, d.overIndex);
     setRowDragOver(null);
   };
 
-  // Fit to screen zoom calculation
   const handleFitZoom = () => {
     if (!scrollContainerRef.current) return;
     const containerWidth = scrollContainerRef.current.clientWidth - 40;
@@ -456,7 +412,6 @@ export const Timeline: React.FC = () => {
     }
   };
 
-  // Generate ruler tick marks
   const ticks = useMemo(() => {
     const list: Array<{ time: number; isMajor: boolean; label?: string }> = [];
     const step = pps >= 140 ? 0.2 : pps >= 70 ? 0.5 : 1;
@@ -472,7 +427,6 @@ export const Timeline: React.FC = () => {
     return list;
   }, [totalDuration, pps]);
 
-  // Format digital readout time
   const formatTimecode = (sec: number) => {
     const mins = Math.floor(sec / 60);
     const secs = Math.floor(sec % 60);
@@ -482,112 +436,126 @@ export const Timeline: React.FC = () => {
 
   return (
     <div
-      className="h-80 bg-[#121218] border-t border-[#232330] flex flex-col z-10 select-none text-gray-200 outline-none"
+      className="flex flex-col z-10 select-none outline-none"
+      style={{ height: 280, background: '#0d0d12', borderTop: '1px solid #1e1e2e' }}
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
-      {/* 1. Header Toolbar Bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#232330] bg-[#171722]">
-        {/* Left: Playback & Step Controls */}
-        <div className="flex items-center gap-1.5">
+      {/* ── Header toolbar ────────────────────────────────────────────────── */}
+      <div
+        className="flex items-center justify-between px-3 shrink-0"
+        style={{ height: 44, background: '#11111a', borderBottom: '1px solid #1e1e2e' }}
+      >
+        {/* Left: transport */}
+        <div className="flex items-center gap-1">
           <button
             onClick={() => scrubTo(0)}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
-            title="Jump to Start (Home)"
+            className="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-white/5 transition"
+            title="Jump to Start"
           >
-            <SkipBack size={14} />
+            <SkipBack size={13} />
           </button>
 
           <button
             onClick={() => scrubTo(Math.max(0, playheadTime - 0.1))}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
-            title="Step Back 0.1s (←)"
+            className="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-white/5 transition"
+            title="Step Back"
           >
-            <ChevronLeft size={15} />
+            <ChevronLeft size={14} />
           </button>
 
+          {/* Play / Pause */}
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-md ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-semibold transition ${
               isPlaying
-                ? 'bg-amber-500 text-black hover:bg-amber-400 shadow-amber-500/20'
-                : 'bg-red-600 text-white hover:bg-red-500 shadow-red-600/20'
+                ? 'bg-[#f0a050] text-black'
+                : 'bg-[#1bbfa7] text-black hover:bg-[#1dd8be]'
             }`}
             title="Play / Pause (Space)"
           >
-            {isPlaying ? <Pause size={13} /> : <Play size={13} />}
+            {isPlaying ? <Pause size={12} /> : <Play size={12} />}
             <span>{isPlaying ? 'Pause' : 'Play'}</span>
           </button>
 
           <button
             onClick={() => scrubTo(Math.min(totalDuration, playheadTime + 0.1))}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
-            title="Step Forward 0.1s (→)"
+            className="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-white/5 transition"
+            title="Step Forward"
           >
-            <ChevronRight size={15} />
+            <ChevronRight size={14} />
           </button>
 
           <button
             onClick={() => scrubTo(totalDuration)}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition"
-            title="Jump to End (End)"
+            className="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-white/5 transition"
+            title="Jump to End"
           >
-            <SkipForward size={14} />
+            <SkipForward size={13} />
           </button>
 
-          {/* Timecode Readout */}
-          <div className="ml-2 flex items-center gap-1.5 font-mono text-xs bg-[#101015] border border-[#262635] px-2.5 py-1 rounded-lg">
-            <span className="text-red-400 font-bold">{formatTimecode(uiTime)}</span>
-            <span className="text-gray-600">/</span>
-            <span className="text-gray-400">{formatTimecode(totalDuration)}</span>
+          {/* Timecode */}
+          <div
+            className="ml-2 flex items-center gap-1 font-mono text-[11px] px-2 py-1 rounded"
+            style={{ background: '#08080e', border: '1px solid #222230' }}
+          >
+            <span style={{ color: '#f0a050', fontWeight: 700 }}>{formatTimecode(uiTime)}</span>
+            <span style={{ color: '#3a3a4a' }}>/</span>
+            <span style={{ color: '#5a5a6a' }}>{formatTimecode(totalDuration)}</span>
           </div>
         </div>
 
-        {/* Center: Sequencer Shortcuts */}
+        {/* Center: shortcuts */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'sequence' } }))}
-            className="flex items-center gap-1.5 px-3 py-1 bg-[#20202c] hover:bg-[#2a2a3a] text-gray-200 border border-[#2e2e40] rounded-lg text-xs font-semibold transition"
-            title="Sequence & Stagger All Layers"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium text-gray-300 hover:text-white hover:bg-white/5 transition"
+            style={{ border: '1px solid #222232' }}
+            title="Stagger All Layers"
           >
-            <Sliders size={13} className="text-emerald-400" />
-            <span>Stagger All</span>
+            <Sliders size={12} style={{ color: '#1bbfa7' }} />
+            <span>Stagger</span>
           </button>
 
           <button
             onClick={addKeyframeAtPlayhead}
             disabled={!selectedId}
-            className="flex items-center gap-1 px-2.5 py-1 bg-[#20202c] hover:bg-[#2a2a3a] text-gray-300 border border-[#2e2e40] rounded-lg text-xs transition disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] text-gray-400 hover:text-gray-200 transition disabled:opacity-30"
+            style={{ border: '1px solid #222232' }}
             title="Add Keyframe at Playhead"
           >
-            <Plus size={13} />
+            <Plus size={12} />
             <span>Keyframe</span>
           </button>
         </div>
 
-        {/* Right: Duration, Loop, Snap, Zoom */}
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-gray-400">
-            <span>Duration:</span>
+        {/* Right: settings */}
+        <div className="flex items-center gap-2.5">
+          <label className="flex items-center gap-1.5 text-[11px]" style={{ color: '#5a5a6a' }}>
+            <span>Duration</span>
             <input
               type="number"
-              min="0.5"
-              max="60"
-              step="0.5"
+              min="0.5" max="60" step="0.5"
               value={totalDuration}
               onChange={(e) => setTotalDuration(parseFloat(e.target.value) || 1)}
-              className="w-14 border border-[#2a2a38] rounded-lg px-2 py-0.5 text-xs focus:border-red-500 focus:outline-none bg-[#121217] text-gray-100 font-mono text-center"
+              className="w-12 rounded px-2 py-0.5 text-[11px] text-center font-mono focus:outline-none"
+              style={{
+                background: '#08080e',
+                border: '1px solid #222232',
+                color: '#e0e0e0',
+              }}
             />
             <span>s</span>
           </label>
 
           <button
             onClick={() => setLoop(!loop)}
-            className={`p-1.5 rounded-lg border transition flex items-center gap-1 text-xs font-medium ${
-              loop
-                ? 'bg-red-500/20 text-red-400 border-red-500/40'
-                : 'text-gray-400 border-[#262635] hover:text-white bg-[#121217]'
-            }`}
+            className="p-1.5 rounded transition"
+            style={{
+              border: `1px solid ${loop ? '#1bbfa740' : '#222232'}`,
+              background: loop ? '#1bbfa710' : 'transparent',
+              color: loop ? '#1bbfa7' : '#5a5a6a',
+            }}
             title="Loop Playback"
           >
             <Repeat size={13} />
@@ -595,75 +563,98 @@ export const Timeline: React.FC = () => {
 
           <button
             onClick={() => setSnapToGrid(!snapToGrid)}
-            className={`p-1.5 rounded-lg border transition ${
-              snapToGrid
-                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                : 'text-gray-400 border-[#262635] hover:text-white bg-[#121217]'
-            }`}
-            title="Snap to 0.1s Grid"
+            className="p-1.5 rounded transition"
+            style={{
+              border: `1px solid ${snapToGrid ? '#f0a05040' : '#222232'}`,
+              background: snapToGrid ? '#f0a05010' : 'transparent',
+              color: snapToGrid ? '#f0a050' : '#5a5a6a',
+            }}
+            title="Snap to Grid"
           >
             <Magnet size={13} />
           </button>
 
-          <div className="h-4 w-px bg-[#262635]" />
+          <div style={{ width: 1, height: 16, background: '#222232' }} />
 
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-1 bg-[#121217] border border-[#262635] rounded-lg px-2 py-1">
+          {/* Zoom */}
+          <div
+            className="flex items-center gap-0.5 px-1.5 py-1 rounded"
+            style={{ background: '#08080e', border: '1px solid #222232' }}
+          >
             <button
               onClick={() => setPps((p) => Math.max(MIN_PPS, p - 20))}
               disabled={pps <= MIN_PPS}
-              className="p-1 rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
-              title="Zoom Out"
+              className="p-1 rounded text-gray-500 hover:text-gray-200 disabled:opacity-30 transition"
             >
-              <ZoomOut size={13} />
+              <ZoomOut size={12} />
             </button>
-
-            <span className="text-[10px] font-mono text-gray-400 w-9 text-center">
+            <span className="text-[10px] font-mono w-8 text-center" style={{ color: '#5a5a6a' }}>
               {Math.round((pps / DEFAULT_PPS) * 100)}%
             </span>
-
             <button
               onClick={() => setPps((p) => Math.min(MAX_PPS, p + 20))}
               disabled={pps >= MAX_PPS}
-              className="p-1 rounded text-gray-400 hover:text-white disabled:opacity-30 transition"
-              title="Zoom In"
+              className="p-1 rounded text-gray-500 hover:text-gray-200 disabled:opacity-30 transition"
             >
-              <ZoomIn size={13} />
+              <ZoomIn size={12} />
             </button>
-
             <button
               onClick={handleFitZoom}
-              className="p-1 rounded text-gray-400 hover:text-red-400 transition ml-0.5"
-              title="Fit to Timeline Window"
+              className="p-1 rounded text-gray-500 hover:text-[#1bbfa7] transition"
+              title="Fit to window"
             >
-              <Maximize2 size={12} />
+              <Maximize2 size={11} />
             </button>
           </div>
         </div>
       </div>
 
-      {/* 2. Main Timeline Workspace (Layers on Left, Tracks on Right) */}
+      {/* ── Main workspace ────────────────────────────────────────────────── */}
       <div className="flex-1 flex min-h-0">
-        {/* Left: Layers Sidebar */}
-        <div className="w-64 border-r border-[#232330] flex flex-col bg-[#14141c] shrink-0">
-          <div className="px-4 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-[#232330] bg-[#111116] flex items-center justify-between">
-            <span>Layers ({elements.length})</span>
-            <span className="text-gray-500">Actions</span>
+
+        {/* Left: Layers panel */}
+        <div
+          className="shrink-0 flex flex-col"
+          style={{ width: 220, background: '#0f0f18', borderRight: '1px solid #1a1a28' }}
+        >
+          {/* Layers header aligned with ruler */}
+          <div
+            className="flex items-center px-3 shrink-0"
+            style={{
+              height: RULER_H,
+              background: '#0b0b14',
+              borderBottom: '1px solid #1a1a28',
+            }}
+          >
+            <Film size={11} style={{ color: '#3a3a55', marginRight: 6 }} />
+            <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#3a3a55' }}>
+              Layers
+            </span>
+            <span className="ml-auto text-[9px] font-mono rounded px-1" style={{ background: '#1a1a28', color: '#4a4a65' }}>
+              {elements.length}
+            </span>
           </div>
 
-          <div ref={leftRowsRef} className="flex-1 overflow-y-auto relative">
-            {/* Drop indicator line while reordering rows */}
+          {/* Layer rows */}
+          <div ref={leftRowsRef} className="flex-1 overflow-y-auto relative" style={{ overflowX: 'hidden' }}>
+            {/* Drop indicator */}
             {rowDragOver && (
               <div
-                className="absolute left-0 right-0 h-0.5 bg-amber-400 pointer-events-none z-10"
-                style={{ top: rowDragOver.overIndex * ROW_H }}
+                className="absolute left-0 right-0 pointer-events-none z-10"
+                style={{
+                  top: rowDragOver.overIndex * ROW_H,
+                  height: 2,
+                  background: '#f0a050',
+                  boxShadow: '0 0 6px #f0a05080',
+                }}
               />
             )}
 
             {elements.map((el, i) => {
               const isSelected = selectedId === el.id;
-              const hasEnter = el.enterAnimation || el.animation;
+              const hasAnim = !!(el.enterAnimation || el.animation);
               const isDragSource = rowDragOver?.id === el.id;
+
               return (
                 <div
                   key={el.id}
@@ -672,94 +663,107 @@ export const Timeline: React.FC = () => {
                   onPointerMove={moveRowDrag}
                   onPointerUp={endRowDrag}
                   onPointerCancel={endRowDrag}
-                  className={`flex items-center gap-2 px-3 border-b border-[#1b1b26] group transition select-none ${
-                    isSelected
-                      ? 'bg-red-500/15 border-l-2 border-l-red-500'
-                      : 'hover:bg-[#1c1c28] border-l-2 border-l-transparent'
-                  } ${el.visible === false ? 'opacity-40' : ''} ${
-                    isDragSource
-                      ? 'z-30 shadow-lg shadow-amber-500/15 cursor-grabbing transition-none'
-                      : 'cursor-grab'
+                  className={`flex items-center gap-1.5 px-2 group transition select-none ${
+                    isDragSource ? 'z-30 cursor-grabbing' : 'cursor-grab'
                   }`}
-                  style={{ height: ROW_H, transform: isDragSource && rowDragOver ? `translateY(${rowDragOver.dy}px)` : undefined }}
-                  title="Drag to reorder · lower in list = in front on canvas"
+                  style={{
+                    height: ROW_H,
+                    borderBottom: '1px solid #161624',
+                    borderLeft: `2px solid ${isSelected ? '#1bbfa7' : 'transparent'}`,
+                    background: isSelected
+                      ? '#1bbfa708'
+                      : isDragSource
+                      ? '#1a1a2a'
+                      : undefined,
+                    opacity: el.visible === false ? 0.35 : 1,
+                    transform: isDragSource && rowDragOver ? `translateY(${rowDragOver.dy}px)` : undefined,
+                  }}
                 >
-                  {/* Always-visible drag/reorder handle */}
-                  <span className="text-gray-500 group-hover:text-white shrink-0 select-none" title="Drag to reorder">
-                    <GripVertical size={12} />
-                  </span>
+                  {/* Drag handle */}
+                  <GripVertical size={11} style={{ color: '#2a2a3a', flexShrink: 0 }} className="group-hover:!text-gray-400 transition" />
 
+                  {/* Eye */}
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleVisibility(el.id);
-                    }}
-                    className="text-gray-500 hover:text-white transition"
+                    onClick={(e) => { e.stopPropagation(); toggleVisibility(el.id); }}
+                    className="transition shrink-0"
+                    style={{ color: el.visible === false ? '#3a3a4a' : '#5a5a6a' }}
                     title="Toggle visibility"
                   >
-                    {el.visible === false ? <EyeOff size={13} /> : <Eye size={13} />}
+                    {el.visible === false ? <EyeOff size={12} /> : <Eye size={12} />}
                   </button>
 
+                  {/* Lock */}
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleLock(el.id);
-                    }}
-                    className={`${el.locked ? 'text-red-400' : 'text-gray-500 hover:text-gray-300'} transition`}
+                    onClick={(e) => { e.stopPropagation(); toggleLock(el.id); }}
+                    className="transition shrink-0"
+                    style={{ color: el.locked ? '#e4567d' : '#5a5a6a' }}
                     title="Toggle lock"
                   >
-                    {el.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                    {el.locked ? <Lock size={11} /> : <Unlock size={11} />}
                   </button>
 
-                  <span className="text-gray-400 group-hover:text-red-400 transition">
+                  {/* Type icon */}
+                  <span
+                    className="transition shrink-0"
+                    style={{ color: isSelected ? '#1bbfa7' : '#4a4a6a' }}
+                  >
                     {typeIcon(el.type)}
                   </span>
 
-                  <span className="text-xs text-gray-200 font-medium truncate flex-1">
+                  {/* Label */}
+                  <span
+                    className="text-[11px] font-medium truncate flex-1"
+                    style={{ color: isSelected ? '#e0e0e0' : '#8a8a9a' }}
+                  >
                     {elementLabel(el)}
                   </span>
 
-                  {/* Quick Animation Studio Trigger Badge */}
+                  {/* Sparkles if animated */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       selectElement(el.id);
                       window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'in' } }));
                     }}
-                    className={`p-1 rounded-md text-[10px] transition flex items-center gap-1 ${
-                      hasEnter
-                        ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20'
-                        : 'text-gray-500 hover:text-gray-200 opacity-0 group-hover:opacity-100'
-                    }`}
-                    title="Edit Animation in Studio"
+                    className="transition shrink-0"
+                    style={{
+                      color: hasAnim ? '#f0a050' : '#3a3a4a',
+                      opacity: hasAnim ? 1 : 0,
+                    }}
+                    title="Edit animations"
                   >
                     <Sparkles size={11} />
                   </button>
 
+                  {/* Delete */}
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeElement(el.id);
-                    }}
-                    className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
+                    onClick={(e) => { e.stopPropagation(); removeElement(el.id); }}
+                    className="opacity-0 group-hover:opacity-100 transition shrink-0"
+                    style={{ color: '#5a5a6a' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = '#e4567d')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = '#5a5a6a')}
                     title="Delete layer"
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={11} />
                   </button>
                 </div>
               );
             })}
 
             {elements.length === 0 && (
-              <div className="p-6 text-xs text-gray-500 text-center">
-                Add text, images, or shapes to begin animating.
+              <div className="p-6 text-[11px] text-center" style={{ color: '#3a3a4a' }}>
+                Add elements to start animating
               </div>
             )}
           </div>
         </div>
 
-        {/* Right: Tracks & Playhead Workspace */}
-        <div className="flex-1 overflow-auto relative bg-[#0f0f15]" ref={scrollContainerRef}>
+        {/* Right: Track area */}
+        <div
+          className="flex-1 overflow-auto relative"
+          ref={scrollContainerRef}
+          style={{ background: '#0c0c15' }}
+        >
           <div
             ref={trackRef}
             style={{ width: trackWidth, position: 'relative', minHeight: trackMinHeight || undefined }}
@@ -768,10 +772,14 @@ export const Timeline: React.FC = () => {
             onPointerMove={moveDragSegment}
             onPointerUp={endDragSegment}
           >
-            {/* 2A. Timeline Ruler */}
+            {/* ── Ruler ── */}
             <div
-              className="border-b border-[#232330] bg-[#15151e] relative cursor-grab active:cursor-grabbing touch-none"
-              style={{ height: RULER_H }}
+              className="relative cursor-grab active:cursor-grabbing touch-none"
+              style={{
+                height: RULER_H,
+                background: '#0b0b14',
+                borderBottom: '1px solid #1a1a28',
+              }}
               onPointerDown={startScrub}
               onPointerMove={scrubMove}
               onPointerUp={endScrub}
@@ -780,27 +788,57 @@ export const Timeline: React.FC = () => {
               {ticks.map((t, idx) => (
                 <div
                   key={idx}
-                  className={`absolute top-0 h-full border-l ${
-                    t.isMajor ? 'border-[#333346]' : 'border-[#20202e]'
-                  }`}
-                  style={{ left: t.time * pps }}
+                  className="absolute top-0 h-full"
+                  style={{
+                    left: t.time * pps,
+                    borderLeft: `1px solid ${t.isMajor ? '#252535' : '#18182a'}`,
+                  }}
                 >
                   {t.label && (
-                    <span className="absolute top-1 left-1.5 text-[9px] text-gray-400 font-mono font-medium select-none">
+                    <span
+                      className="absolute font-mono select-none"
+                      style={{
+                        top: 7,
+                        left: 4,
+                        fontSize: 9,
+                        color: '#3a3a55',
+                        fontWeight: 500,
+                      }}
+                    >
                       {t.label}
                     </span>
                   )}
                 </div>
               ))}
+
+              {/* Ruler playhead indicator */}
+              <div
+                className="absolute top-0 h-full pointer-events-none"
+                style={{
+                  left: uiTime * pps,
+                  width: 1,
+                  background: '#f0a050',
+                  opacity: 0.4,
+                }}
+              />
             </div>
 
-            {/* 2B. Element Rows with Visual Animation Segments & Keyframes */}
-            <div ref={rightRowsRef} className="relative will-change-transform" style={{ height: elements.length * ROW_H }}>
-              {/* Drop indicator line while reordering rows */}
+            {/* ── Element rows ── */}
+            <div
+              ref={rightRowsRef}
+              className="relative will-change-transform"
+              style={{ height: elements.length * ROW_H }}
+            >
+              {/* Drop indicator */}
               {rowDragOver && (
                 <div
-                  className="absolute left-0 right-0 h-0.5 bg-amber-400 pointer-events-none z-10"
-                  style={{ top: rowDragOver.overIndex * ROW_H }}
+                  className="absolute left-0 right-0 pointer-events-none z-10"
+                  style={{
+                    top: rowDragOver.overIndex * ROW_H,
+                    height: 2,
+                    background: '#f0a050',
+                    boxShadow: '0 0 6px #f0a05080',
+                  }}
                 />
               )}
 
@@ -810,19 +848,22 @@ export const Timeline: React.FC = () => {
                 const isSelected = selectedId === el.id;
                 const isDragSource = rowDragOver?.id === el.id;
 
+                // Compute element's full animation span for the "lifetime" bar
+                const allTimes = kfs.map((k) => k.time);
+                const lifeStart = allTimes.length > 0 ? Math.min(...allTimes) : 0;
+                const lifeEnd = allTimes.length > 0 ? Math.max(...allTimes) : totalDuration;
+
                 return (
                   <div
                     key={el.id}
-                    className={`absolute left-0 right-0 border-b border-[#181822] relative transition-colors select-none ${
-                      isSelected ? 'bg-red-500/10' : 'hover:bg-white/[0.02]'
-                    } ${
-                      isDragSource
-                        ? 'z-30 shadow-lg shadow-amber-500/15 cursor-grabbing transition-none'
-                        : 'cursor-grab'
+                    className={`absolute left-0 right-0 select-none transition-colors ${
+                      isDragSource ? 'z-30 cursor-grabbing' : 'cursor-grab'
                     }`}
                     style={{
                       top: i * ROW_H,
                       height: ROW_H,
+                      borderBottom: '1px solid #14141e',
+                      background: isSelected ? '#1bbfa705' : undefined,
                       transform: isDragSource && rowDragOver ? `translateY(${rowDragOver.dy}px)` : undefined,
                     }}
                     onClick={() => selectElement(el.id)}
@@ -832,72 +873,82 @@ export const Timeline: React.FC = () => {
                     onPointerUp={endRowDrag}
                     onPointerCancel={endRowDrag}
                   >
-                    {/* Drag / reorder handle (always visible so users know rows can be rearranged) */}
-                    <div
-                      className="absolute top-0 bottom-0 left-0 w-4 flex items-center justify-center text-gray-600 opacity-70 group-hover:opacity-100 cursor-grab select-none"
-                      title="Drag to reorder row"
-                    >
-                      <GripVertical size={12} />
-                    </div>
-
-                    {/* Grid vertical guidelines */}
+                    {/* Vertical grid lines */}
                     {ticks.filter((t) => t.isMajor).map((t, idx) => (
                       <div
                         key={idx}
-                        className="absolute top-0 bottom-0 border-l border-[#1c1c28] pointer-events-none"
-                        style={{ left: t.time * pps }}
+                        className="absolute top-0 bottom-0 pointer-events-none"
+                        style={{ left: t.time * pps, borderLeft: '1px solid #181828' }}
                       />
                     ))}
 
-                    {/* Rich Interactive Animation Segment Bars (Pills) */}
+                    {/* Element "lifetime" bar — spans full animation window */}
+                    {allTimes.length > 0 && (
+                      <div
+                        className="absolute pointer-events-none rounded-sm"
+                        style={{
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          left: lifeStart * pps,
+                          width: Math.max(4, (lifeEnd - lifeStart) * pps),
+                          height: 6,
+                          background: '#1e1e30',
+                          borderRadius: 2,
+                        }}
+                      />
+                    )}
+
+                    {/* Animation segment bars (TheBrief-style colored pills) */}
                     {segments
                       .filter((seg) => seg.end > seg.start)
                       .map((seg) => {
                         const segLeft = seg.start * pps;
                         const segWidth = Math.max(12, (seg.end - seg.start) * pps);
+                        const style = getSegmentStyle(seg.id);
                         const isEntrance = seg.id === 'enter';
-                        const isLoop = seg.id !== 'enter' && seg.id !== 'exit';
                         const isExit = seg.id === 'exit';
 
                         return (
                           <div
                             key={seg.id}
-                            className={`absolute top-1/2 -translate-y-1/2 h-6 rounded-lg px-2 flex items-center justify-between text-[11px] font-semibold text-white shadow-md cursor-grab active:cursor-grabbing group/seg transition-all ${
-                              isEntrance
-                                ? 'bg-gradient-to-r from-amber-500 to-amber-600 border border-amber-400/40 shadow-amber-500/20'
-                                : isExit
-                                ? 'bg-gradient-to-r from-red-600 to-rose-600 border border-red-500/40 shadow-red-500/20'
-                                : 'bg-gradient-to-r from-purple-600 to-indigo-600 border border-purple-500/40 shadow-purple-500/20'
-                            }`}
+                            className={`absolute rounded flex items-center gap-1 text-[10px] font-semibold cursor-grab active:cursor-grabbing transition-all ${style.bg} ${style.label}`}
                             style={{
+                              top: '50%',
+                              transform: 'translateY(-50%)',
                               left: segLeft,
                               width: segWidth,
+                              height: 22,
+                              border: `1px solid`,
+                              borderColor: style.border.replace('border-', '').replace('[', '').replace(']', '').replace('/50', '80'),
+                              boxShadow: `0 1px 8px ${
+                                isEntrance ? '#1bbfa730' : isExit ? '#e4567d30' : '#9b7df820'
+                              }`,
+                              padding: '0 6px',
+                              overflow: 'hidden',
                             }}
-                            title={`${seg.label} (${seg.start.toFixed(2)}s – ${seg.end.toFixed(
-                              2,
-                            )}s)\nDrag to re-time · Double click to open Studio`}
+                            title={`${seg.label} — ${seg.start.toFixed(2)}s → ${seg.end.toFixed(2)}s\nDrag to re-time · Double-click to open Studio`}
                             onPointerDown={startDragSegment(el, seg, 'move')}
                             onDoubleClick={(e) => {
                               e.stopPropagation();
                               selectElement(el.id);
-                              const tab = isEntrance ? 'in' : isExit ? 'out' : 'loop';
-                              window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab } }));
+                              window.dispatchEvent(new CustomEvent('open-animation-studio', {
+                                detail: { tab: isEntrance ? 'in' : 'out' },
+                              }));
                             }}
                           >
-                            <div className="flex items-center gap-1 truncate pointer-events-none">
-                              {isEntrance && <Zap size={11} className="shrink-0" />}
-                              {isLoop && <RotateCcw size={11} className="shrink-0" />}
-                              {isExit && <FastForward size={11} className="shrink-0" />}
-                              <span className="truncate text-[10px]">
-                                {segWidth > 55 ? seg.label : ''}
-                              </span>
-                            </div>
+                            <span className="flex items-center gap-0.5 truncate pointer-events-none">
+                              {isEntrance && <Zap size={9} className="shrink-0 opacity-90" />}
+                              {isExit && <FastForward size={9} className="shrink-0 opacity-90" />}
+                              {!isEntrance && !isExit && <RotateCcw size={9} className="shrink-0 opacity-90" />}
+                              {segWidth > 48 && (
+                                <span className="truncate text-[9px] opacity-90">{seg.label}</span>
+                              )}
+                            </span>
 
-                            {/* Resize Handle at the right edge of Entrance segment */}
+                            {/* Resize handle (entrance only) */}
                             {isEntrance && (
                               <div
-                                className="w-2 h-full absolute right-0 top-0 cursor-ew-resize hover:bg-white/30 rounded-r-lg transition"
-                                title="Drag to adjust animation duration"
+                                className="absolute top-0 right-0 w-2 h-full cursor-ew-resize hover:bg-white/25 rounded-r transition"
                                 onPointerDown={startDragSegment(el, seg, 'resize-end')}
                               />
                             )}
@@ -905,20 +956,28 @@ export const Timeline: React.FC = () => {
                         );
                       })}
 
-                    {/* Keyframe Diamonds (◆) */}
+                    {/* Keyframe diamonds */}
                     {kfs.map((kf) => {
                       const isKfSelected =
                         selectedKeyframe?.elementId === el.id && selectedKeyframe.keyframeId === kf.id;
                       return (
                         <div
                           key={kf.id}
-                          className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rotate-45 cursor-grab active:cursor-grabbing transition-transform ${
-                            isKfSelected
-                              ? 'bg-amber-400 ring-2 ring-amber-300 shadow-lg shadow-amber-400/40 z-20 scale-125'
-                              : 'bg-red-500 hover:bg-red-400 hover:scale-110 shadow-md shadow-red-500/30 z-10'
-                          }`}
-                          style={{ left: kf.time * pps }}
-                          title={`Keyframe at ${kf.time.toFixed(2)}s\nDrag to move · Click to edit`}
+                          className="absolute cursor-grab active:cursor-grabbing transition-transform"
+                          style={{
+                            top: '50%',
+                            left: kf.time * pps,
+                            transform: `translate(-50%, -50%) rotate(45deg) scale(${isKfSelected ? 1.3 : 1})`,
+                            width: 10,
+                            height: 10,
+                            background: isKfSelected ? '#f0a050' : '#1bbfa7',
+                            boxShadow: isKfSelected
+                              ? '0 0 8px #f0a05080'
+                              : '0 0 6px #1bbfa740',
+                            zIndex: isKfSelected ? 20 : 10,
+                            borderRadius: 2,
+                          }}
+                          title={`Keyframe at ${kf.time.toFixed(2)}s`}
                           onPointerDown={startDragKf(el, kf.id)}
                           onPointerMove={moveDragKf}
                           onPointerUp={endDragKf}
@@ -935,45 +994,51 @@ export const Timeline: React.FC = () => {
               })}
             </div>
 
-            {/* 2C. Playhead Needle Line & Scrub Handle */}
-            {/* Spans the full rail (top -> bottom) so the red line always runs the
-                entire height of the timeline, ruler included. */}
+            {/* ── Playhead needle ── */}
             <div
               ref={needleRef}
-              className="absolute top-0 bottom-0 w-[3px] bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.55)] pointer-events-none z-40 will-change-transform"
-              style={{ transform: `translateX(${uiTime * pps}px)` }}
+              className="absolute top-0 bottom-0 pointer-events-none z-40 will-change-transform"
+              style={{
+                width: 1,
+                background: '#f0a050',
+                boxShadow: '0 0 6px #f0a05060',
+                transform: `translateX(${uiTime * pps}px)`,
+              }}
             >
-              {/* Grabbable strip on the line itself: gives the hand (grab) cursor
-                  on the red line and lets you scrub from anywhere along it. */}
+              {/* Grab strip */}
               <div
-                className="absolute -left-[2.5px] top-0 bottom-0 w-2 pointer-events-auto cursor-grab active:cursor-grabbing touch-none"
-                title="Drag to scrub"
+                className="absolute top-0 bottom-0 cursor-grab active:cursor-grabbing touch-none pointer-events-auto"
+                style={{ left: -3, width: 7 }}
                 onPointerDown={startScrub}
                 onPointerMove={scrubMove}
                 onPointerUp={endScrub}
                 onPointerCancel={endScrub}
               />
 
-              {/* Diamond handle — kept inside the rail's top edge so it is never
-                  clipped by the workspace' overflow. */}
+              {/* Head diamond */}
               <div
-                className="absolute left-1/2 top-1 -translate-x-1/2 rotate-45 w-4 h-4 bg-red-500 rounded-[3px] shadow-[0_0_10px_rgba(239,68,68,0.85)] flex items-center justify-center pointer-events-auto cursor-grab active:cursor-grabbing touch-none"
-                title="Drag to scrub"
+                className="absolute cursor-grab active:cursor-grabbing pointer-events-auto"
+                style={{
+                  top: 3,
+                  left: '50%',
+                  transform: 'translateX(-50%) rotate(45deg)',
+                  width: 12,
+                  height: 12,
+                  background: '#f0a050',
+                  borderRadius: 2,
+                  boxShadow: '0 0 10px #f0a05090',
+                }}
                 onPointerDown={startScrub}
                 onPointerMove={scrubMove}
                 onPointerUp={endScrub}
                 onPointerCancel={endScrub}
-              >
-                <div className="w-1 h-1 bg-white rounded-full" />
-              </div>
+              />
             </div>
 
-            {/* Scrub Hit Target: only the empty space BELOW the element rows (the
-                ruler above is scrubbable too). Leaving the rows uncovered keeps
-                keyframes / segment pills draggable with their own grab cursor. */}
+            {/* Scrub dead zone below rows */}
             <div
-              className="absolute left-0 right-0 bottom-0 z-[5] cursor-grab active:cursor-grabbing touch-none"
-              style={{ top: RULER_H + elements.length * ROW_H }}
+              className="absolute left-0 right-0 bottom-0 cursor-grab active:cursor-grabbing touch-none"
+              style={{ top: RULER_H + elements.length * ROW_H, zIndex: 5 }}
               onPointerDown={startScrub}
               onPointerMove={scrubMove}
               onPointerUp={endScrub}
@@ -983,28 +1048,51 @@ export const Timeline: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Bottom Keyboard Shortcuts Footer */}
-      <div className="px-4 py-1.5 text-[10px] text-gray-500 border-t border-[#232330] bg-[#111116] flex items-center justify-between">
+      {/* ── Legend / shortcuts footer ─────────────────────────────────── */}
+      <div
+        className="flex items-center justify-between px-4 shrink-0"
+        style={{
+          height: 28,
+          background: '#09090f',
+          borderTop: '1px solid #1a1a28',
+          fontSize: 9,
+          color: '#3a3a4a',
+        }}
+      >
         <div className="flex items-center gap-4">
+          {/* Animation type legend */}
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ background: '#1bbfa7' }} />
+            <span>In</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ background: '#e4567d' }} />
+            <span>Out</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ background: '#9b7df8' }} />
+            <span>Loop</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ background: '#f0a050' }} />
+            <span>Keyframe</span>
+          </span>
+
+          <span style={{ color: '#252535' }}>|</span>
+
           <span>
-            <kbd className="bg-[#20202c] text-gray-300 px-1.5 py-0.5 rounded border border-[#2d2d3d] mr-1">Space</kbd> Play/Pause
+            <kbd className="px-1 py-0.5 rounded" style={{ background: '#151520', color: '#5a5a6a', border: '1px solid #222232' }}>Space</kbd> Play
           </span>
           <span>
-            <kbd className="bg-[#20202c] text-gray-300 px-1.5 py-0.5 rounded border border-[#2d2d3d] mr-1">← / →</kbd> Step 0.1s
+            <kbd className="px-1 py-0.5 rounded" style={{ background: '#151520', color: '#5a5a6a', border: '1px solid #222232' }}>← →</kbd> Step
           </span>
           <span>
-            <kbd className="bg-[#20202c] text-gray-300 px-1.5 py-0.5 rounded border border-[#2d2d3d] mr-1">Drag Red Line</kbd> Scrub Playhead
-          </span>
-          <span>
-            <kbd className="bg-[#20202c] text-gray-300 px-1.5 py-0.5 rounded border border-[#2d2d3d] mr-1">Drag Segment</kbd> Adjust Timing
-          </span>
-          <span>
-            <kbd className="bg-[#20202c] text-gray-300 px-1.5 py-0.5 rounded border border-[#2d2d3d] mr-1">Double Click</kbd> Open Studio / Add KF
+            <kbd className="px-1 py-0.5 rounded" style={{ background: '#151520', color: '#5a5a6a', border: '1px solid #222232' }}>Dbl-click</kbd> Add KF / Open Studio
           </span>
         </div>
 
-        <div className="text-gray-400 font-mono">
-          {snapToGrid ? 'Snap: 0.1s' : 'Smooth Scrub'}
+        <div style={{ color: '#3a3a50', fontFamily: 'monospace' }}>
+          {snapToGrid ? 'Snap 0.1s' : 'Free scrub'}
         </div>
       </div>
     </div>

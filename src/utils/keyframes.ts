@@ -323,11 +323,13 @@ export const getElementAnimationSegments = (el: DesignElement): ElementAnimation
             start: s,
             end: enterEnd,
             label: animationLabel(enterPreset),
-            color: hasExplicitEnter ? '#f59e0b' : '#3b82f6',
+            // TheBrief palette: teal for entrance, blue for main
+            color: hasExplicitEnter ? '#1bbfa7' : '#4d9de0',
         });
     }
     if (main.length > 0) {
-        segments.push({ id: hasExplicitEnter ? 'main' : 'loop', start: enterEnd, end: enterEnd + mainEnd, label: 'Main', color: '#3b82f6' });
+        // TheBrief palette: blue for main animation track
+        segments.push({ id: hasExplicitEnter ? 'main' : 'loop', start: enterEnd, end: enterEnd + mainEnd, label: 'Main', color: '#4d9de0' });
     }
     (el.animations || [])
         .filter((b) => b.preset && b.preset !== 'none')
@@ -337,14 +339,16 @@ export const getElementAnimationSegments = (el: DesignElement): ElementAnimation
                 start: b.start + (b.delay || 0),
                 end: b.start + (b.delay || 0) + b.duration,
                 label: animationLabel(b.preset),
-                color: '#8b5cf6',
+                // TheBrief palette: purple for loop/timed blocks
+                color: '#9b7df8',
             });
         });
     if (el.exitAnimation && el.exitAnimation !== 'none') {
         const exit = presetToKeyframes(el, el.exitAnimation, 0);
         const exitDur = exit.length > 0 ? Math.max(...exit.map((f) => f.time)) : 1;
         const s = (main.length > 0 ? enterEnd + mainEnd : enterEnd) + (el.exitDelay || 0);
-        segments.push({ id: 'exit', start: s, end: s + exitDur, label: animationLabel(el.exitAnimation), color: '#ef4444' });
+        // TheBrief palette: pink/rose for exit segments
+        segments.push({ id: 'exit', start: s, end: s + exitDur, label: animationLabel(el.exitAnimation), color: '#e4567d' });
     }
     return segments;
 };
