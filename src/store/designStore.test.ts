@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useDesignStore, reflowElements, getArtboardPresets } from './designStore';
 import type { DesignElement } from './designStore';
-
 const textEl = (overrides: Partial<DesignElement> = {}): DesignElement => ({
     id: 'el-1',
     type: 'text',
@@ -368,6 +367,66 @@ describe('designStore', () => {
             expect(presets.some((p) => p.width === 300 && p.height === 250)).toBe(true);
             expect(presets.some((p) => p.width === 728 && p.height === 90)).toBe(true);
             expect(presets.some((p) => p.width === 970 && p.height === 250)).toBe(true);
+        });
+
+        it('loads a saved banner template as a new unsaved project', () => {
+            const store = useDesignStore.getState();
+            store.loadProjectState({
+                id: 'proj_old',
+                name: 'Old banner',
+                canvasWidth: 300,
+                canvasHeight: 250,
+                totalDuration: 10,
+                loop: true,
+                canvasBackground: '#ffffff',
+                elements: [textEl()],
+            });
+            expect(useDesignStore.getState().projectId).toBe('proj_old');
+
+            useDesignStore.getState().loadTemplateState({
+                name: 'Starter template',
+                canvasWidth: 728,
+                canvasHeight: 90,
+                totalDuration: 12,
+                loop: false,
+                canvasBackground: '#000000',
+                elements: [textEl({ id: 'el-template', x: 5 })],
+                artboards: [],
+            });
+
+            const state = useDesignStore.getState();
+            expect(state.projectId).toBeNull();
+            expect(state.projectName).toBe('Starter template');
+            expect(state.canvasWidth).toBe(728);
+            expect(state.canvasHeight).toBe(90);
+            expect(state.totalDuration).toBe(12);
+            expect(state.loop).toBe(false);
+            expect(state.elements).toHaveLength(1);
+            expect(state.elements[0].id).toBe('el-template');
+            expect(state.artboards).toHaveLength(1);
+            expect(state.artboards[0].width).toBe(728);
+            expect(state.lastSavedAt).toBeNull();
+        });
+
+        it('keeps every saved artboard when the template has multiple sizes', () => {
+            const store = useDesignStore.getState();
+            store.loadTemplateState({
+                name: 'Campaign template',
+                canvasWidth: 300,
+                canvasHeight: 250,
+                totalDuration: 10,
+                loop: true,
+                canvasBackground: '#ffffff',
+                elements: [textEl()],
+                artboards: [
+                    { id: 'art-a', label: '300x250', width: 300, height: 250, elements: [textEl()] },
+                    { id: 'art-b', label: '728x90', width: 728, height: 90, elements: [] },
+                ],
+            });
+
+            const state = useDesignStore.getState();
+            expect(state.artboards.map((a) => a.id)).toEqual(['art-a', 'art-b']);
+            expect(state.activeArtboardId).toBe('art-a');
         });
     });
 });

@@ -11,6 +11,11 @@ service cloud.firestore {
       allow read, write: if true; // In production, replace with: if request.auth != null
     }
 
+    // Banner Templates Collection (new: user-saved reusable designs)
+    match /bannerTemplates/{templateId} {
+      allow read, write: if true; // In production, replace with: if request.auth != null
+    }
+
     // Templates Collection
     match /templates/{templateId} {
       allow read: if true;

@@ -25,6 +25,8 @@ export interface FirebaseProject {
     canvasBackgroundImage?: string;
     artboards: Artboard[];
     elements: DesignElement[];
+    /** Image/video URLs used by the banner (kept so each banner page can show its assets). */
+    imageUrls?: string[];
     createdAt: number;
     updatedAt: number;
     version: number;
@@ -121,6 +123,7 @@ export async function loadProject(id: string): Promise<FirebaseProject | null> {
             canvasBackgroundImage: data.canvasBackgroundImage,
             artboards: data.artboards || [],
             elements: data.elements || [],
+            imageUrls: data.imageUrls || [],
             createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),
             updatedAt: data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || Date.now()),
             version: data.version || 1,
@@ -135,7 +138,7 @@ export async function loadProject(id: string): Promise<FirebaseProject | null> {
  * Save or update a project in Firestore.
  */
 export async function saveProjectToFirestore(
-    project: Omit<FirebaseProject, 'createdAt' | 'updatedAt'> & { id?: string }
+    project: Omit<FirebaseProject, 'id' | 'createdAt' | 'updatedAt'> & { id?: string; version?: number }
 ): Promise<string> {
     const projectId = project.id || `proj_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const now = Date.now();
@@ -197,7 +200,7 @@ export async function deleteProject(id: string): Promise<void> {
         try {
             const stored = localStorage.getItem(LOCAL_PROJECTS_KEY);
             if (stored) {
-                const list: FirebaseProject[] = JSON.parse(stored).filter((p) => p.id !== id);
+                const list: FirebaseProject[] = JSON.parse(stored).filter((p: FirebaseProject) => p.id !== id);
                 localStorage.setItem(LOCAL_PROJECTS_KEY, JSON.stringify(list));
             }
         } catch (e) {

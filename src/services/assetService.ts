@@ -7,7 +7,6 @@ import {
     query,
     orderBy,
     serverTimestamp,
-    getDocs,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { uploadMediaAsset, deleteMediaAsset } from './storageService';
@@ -20,6 +19,8 @@ export interface FirebaseAsset {
     type: string;
     size: number;
     dimensions?: { width: number; height: number };
+    /** Banner (project) the asset was uploaded for, when uploaded from the editor. */
+    projectId?: string;
     createdAt: number;
 }
 
@@ -45,6 +46,7 @@ export function subscribeToAssets(
                         storagePath: item.storagePath || `local/${item.id}`,
                         type: item.type,
                         size: item.size || 0,
+                        projectId: item.projectId,
                         createdAt: item.addedAt || item.createdAt || Date.now(),
                     }))
                 );
@@ -81,6 +83,7 @@ export function subscribeToAssets(
                     type: data.type,
                     size: data.size,
                     dimensions: data.dimensions,
+                    projectId: data.projectId,
                     createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),
                 };
             });
@@ -97,7 +100,8 @@ export function subscribeToAssets(
  */
 export async function uploadAndSaveAsset(
     file: File,
-    onProgress?: (pct: number) => void
+    onProgress?: (pct: number) => void,
+    projectId?: string
 ): Promise<FirebaseAsset> {
     const { downloadUrl, storagePath } = await uploadMediaAsset(file, onProgress);
     const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -109,6 +113,7 @@ export async function uploadAndSaveAsset(
         storagePath,
         type: file.type,
         size: file.size,
+        projectId,
         createdAt: Date.now(),
     };
 

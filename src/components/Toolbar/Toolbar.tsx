@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  MousePointer2, Type, Image as ImageIcon,
+  MousePointer2, Type, Image as ImageIcon, Loader2,
   ScrollText, Layers, Shapes, Layout, FileJson,
 } from 'lucide-react';
 import { useDesignStore, type ElementType } from '../../store/designStore';
@@ -18,7 +18,7 @@ interface ToolbarProps {
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) => {
-    const { addElement } = useDesignStore();
+    const { addElement, projectId } = useDesignStore();
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = React.useState(false);
 
@@ -72,7 +72,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
 
         try {
             setIsUploading(true);
-            const savedAsset = await uploadAndSaveAsset(file);
+            const savedAsset = await uploadAndSaveAsset(file, undefined, projectId || undefined);
 
             const img = new Image();
             img.onload = () => {
@@ -115,8 +115,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
                 onClick={() => handleToolClick('text')}
             />
             <ToolButton
-                icon={<ImageIcon size={20} />}
-                label="Image"
+                icon={isUploading ? <Loader2 size={20} className="animate-spin" /> : <ImageIcon size={20} />}
+                label={isUploading ? 'Uploading' : 'Image'}
                 isActive={activeTool === 'upload'}
                 onClick={() => handleToolClick('upload')}
             />

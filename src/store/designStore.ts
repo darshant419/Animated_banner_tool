@@ -243,6 +243,23 @@ interface DesignState {
     setProjectName: (name: string) => void;
     setIsSaving: (isSaving: boolean) => void;
     setLastSavedAt: (timestamp: number | null) => void;
+    /** Replaces the design with a built-in template (elements + size + duration). */
+    loadTemplate: (elements: DesignElement[], width: number, height: number, totalDuration?: number) => void;
+    /**
+     * Loads a saved banner template into the editor as a NEW, unsaved banner
+     * (keeps every artboard/size, resets the project id/name).
+     */
+    loadTemplateState: (template: {
+        name?: string;
+        canvasWidth: number;
+        canvasHeight: number;
+        totalDuration: number;
+        loop: boolean;
+        canvasBackground: string;
+        canvasBackgroundImage?: string;
+        artboards?: Artboard[];
+        elements?: DesignElement[];
+    }) => void;
     loadProjectState: (project: {
         id: string;
         name: string;
@@ -815,6 +832,36 @@ export const useDesignStore = create<DesignState>((set) => ({
                 activeArtboardId: 'art-1',
                 past: [],
                 future: [],
+            };
+        }),
+
+    loadTemplateState: (template) =>
+        set(() => {
+            const cleanElements = (template.elements || []).map((el) => ({ ...el, visible: el.visible !== false }));
+            const artboards = (template.artboards && template.artboards.length > 0)
+                ? template.artboards
+                : [{ id: 'art-1', label: `${template.canvasWidth}x${template.canvasHeight}`, width: template.canvasWidth, height: template.canvasHeight, elements: cleanElements }];
+            return {
+                projectId: null,
+                projectName: template.name || 'Untitled Banner',
+                elements: cleanElements,
+                selectedId: null,
+                selectedKeyframe: null,
+                playheadTime: 0,
+                isPlaying: false,
+                previewPaused: false,
+                canvasWidth: template.canvasWidth || 300,
+                canvasHeight: template.canvasHeight || 250,
+                totalDuration: template.totalDuration || 10,
+                loop: template.loop ?? true,
+                canvasBackground: template.canvasBackground || '#ffffff',
+                canvasBackgroundImage: template.canvasBackgroundImage,
+                artboards,
+                activeArtboardId: artboards[0]?.id || 'art-1',
+                multiArtboardView: false,
+                past: [],
+                future: [],
+                lastSavedAt: null,
             };
         }),
 

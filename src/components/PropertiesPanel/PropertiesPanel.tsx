@@ -5,7 +5,7 @@ import { EASINGS } from '../../utils/keyframes';
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
     AlignLeft, AlignCenter, AlignRight,
-    Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles, Loader2, Upload,
+    Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles, Upload,
 } from 'lucide-react';
 import { uploadMediaAsset } from '../../services/storageService';
 

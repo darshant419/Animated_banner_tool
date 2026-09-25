@@ -19,6 +19,9 @@ import {
     Loader2,
     Check,
     Cloud,
+    Home,
+    Bookmark,
+    ExternalLink,
 } from 'lucide-react';
 import { useDesignStore, getArtboardPresets } from '../../store/designStore';
 import { VariationsPanel } from '../Variations/VariationsPanel';
@@ -33,6 +36,10 @@ import { getTemplateById } from '../../templates/emrTemplates';
 import { saveProjectToFirestore } from '../../services/projectService';
 import { uploadProjectThumbnail } from '../../services/storageService';
 import { isFirebaseConfigured } from '../../services/firebase';
+import { saveBannerTemplate } from '../../services/templateService';
+import { collectBannerImageUrls } from '../../utils/bannerImages';
+import { SaveTemplateDialog, type SaveTemplateValues } from '../Templates/SaveTemplateDialog';
+import { navigate } from '../../router/hashRouter';
 
 type MainLayoutProps = {
     mode: AppMode;
@@ -84,6 +91,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
     const [isAnimationStudioOpen, setIsAnimationStudioOpen] = useState(false);
     const [animationStudioTab, setAnimationStudioTab] = useState<'in' | 'out' | 'sequence'>('in');
     const [saveSuccess, setSaveSuccess] = useState(false);
+    const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+    const [savingTemplate, setSavingTemplate] = useState(false);
+    const [templateSaved, setTemplateSaved] = useState(false);
 
     const isCloud = isFirebaseConfigured();
 
@@ -114,29 +124,33 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         setCampaignSelection(new Set());
     };
 
+    /**
+     * Asks the canvas for a snapshot (the same helper PNG export uses) so both
+     * "Save" and "Save as template" can store a thumbnail.
+     */
+    const captureCanvasThumbnail = (): Promise<string | null> =>
+        new Promise((resolve) => {
+            const timeout = setTimeout(() => resolve(null), 500);
+            window.dispatchEvent(
+                new CustomEvent('get-canvas-thumbnail', {
+                    detail: {
+                        callback: (dataUrl: string | null) => {
+                            clearTimeout(timeout);
+                            resolve(dataUrl);
+                        },
+                    },
+                })
+            );
+        });
+
     const handleSaveProject = async () => {
         setIsSaving(true);
         setSaveSuccess(false);
 
         try {
-            // Request canvas thumbnail snapshot from canvas
-            let thumbnailUrl: string | undefined = undefined;
-            const thumbnailPromise = new Promise<string | null>((resolve) => {
-                const timeout = setTimeout(() => resolve(null), 500);
-                window.dispatchEvent(
-                    new CustomEvent('get-canvas-thumbnail', {
-                        detail: {
-                            callback: (dataUrl: string | null) => {
-                                clearTimeout(timeout);
-                                resolve(dataUrl);
-                            },
-                        },
-                    })
-                );
-            });
-
-            const thumbnailDataUrl = await thumbnailPromise;
+            const thumbnailDataUrl = await captureCanvasThumbnail();
             const targetId = projectId || `proj_${Date.now()}`;
+            let thumbnailUrl: string | undefined = undefined;
 
             if (thumbnailDataUrl) {
                 try {
@@ -159,6 +173,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                 canvasBackgroundImage,
                 artboards,
                 elements,
+                imageUrls: collectBannerImageUrls(elements, canvasBackgroundImage),
                 version: 1,
             });
 
@@ -171,6 +186,52 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
             alert('Failed to save project. Check console for error details.');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    /** Stores the current design (all sizes + images) in the template library. */
+    const handleSaveAsTemplate = async (values: SaveTemplateValues) => {
+        setSavingTemplate(true);
+        try {
+            const templateId = `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+            let thumbnailUrl: string | undefined = undefined;
+
+            const thumbnailDataUrl = await captureCanvasThumbnail();
+            if (thumbnailDataUrl) {
+                try {
+                    thumbnailUrl = await uploadProjectThumbnail(thumbnailDataUrl, templateId);
+                } catch (e) {
+                    console.warn('Could not upload template thumbnail:', e);
+                }
+            }
+
+            await saveBannerTemplate({
+                id: templateId,
+                name: values.name,
+                description: values.description,
+                category: values.category,
+                mode,
+                thumbnailUrl,
+                canvasWidth,
+                canvasHeight,
+                totalDuration,
+                loop,
+                canvasBackground,
+                canvasBackgroundImage,
+                artboards,
+                elements,
+                imageUrls: collectBannerImageUrls(elements, canvasBackgroundImage),
+                sourceProjectId: projectId || undefined,
+            });
+
+            setShowTemplateDialog(false);
+            setTemplateSaved(true);
+            setTimeout(() => setTemplateSaved(false), 2500);
+        } catch (err) {
+            console.error('Failed to save template:', err);
+            alert('Failed to save template. Check console for details.');
+        } finally {
+            setSavingTemplate(false);
         }
     };
 
@@ -202,6 +263,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
     }, [undo, redo, removeElement, selectedId, projectId, projectName, canvasWidth, canvasHeight, elements, artboards]);
 
     useEffect(() => {
+        // A banner loaded from a URL/file already brings its own mode + design,
+        // so don't overwrite it with the default starter template.
+        if (projectId) return;
+
         if (mode === 'animated') {
             reset();
             clearHistory();
@@ -214,7 +279,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
             loadTemplate(emrTemplate.elements, emrTemplate.width, emrTemplate.height);
             clearHistory();
         }
-    }, [mode, reset, loadTemplate, clearHistory]);
+    }, [mode, projectId, reset, loadTemplate, clearHistory]);
 
     const availablePresets = getArtboardPresets().filter(
         (p) => !artboards.some((a) => a.width === p.width && a.height === p.height),
@@ -224,6 +289,14 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         <div className="flex flex-col h-screen overflow-hidden bg-[#1e1e26]">
             {/* Header */}
             <header className="h-14 bg-black border-b border-white/10 flex items-center px-4 gap-3 shrink-0">
+                <button
+                    onClick={() => navigate('/')}
+                    className="p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition shrink-0"
+                    title="Back to dashboard"
+                >
+                    <Home size={16} />
+                </button>
+
                 <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center text-white shadow-sm">
                         <Layout size={18} />
@@ -249,6 +322,17 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                             Switch
                         </button>
                     )}
+                    <span
+                        className={`hidden md:flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                            isCloud
+                                ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}
+                        title={isCloud ? 'Saving to Firebase Firestore & Storage' : 'Local mode — add Firebase keys in .env for cloud sync'}
+                    >
+                        <Cloud size={10} />
+                        {isCloud ? 'Firebase' : 'Local'}
+                    </span>
                 </div>
 
                 <div className="h-6 w-px bg-white/10" />
@@ -292,6 +376,30 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                         )}
                         <span>{isSaving ? 'Saving...' : saveSuccess ? 'Saved' : 'Save'}</span>
                     </button>
+
+                    <button
+                        onClick={() => setShowTemplateDialog(true)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition ${
+                            templateSaved
+                                ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40'
+                                : 'bg-white/5 text-gray-300 hover:text-white border-white/10'
+                        }`}
+                        title="Save this design (all sizes + images) as a reusable template"
+                    >
+                        {templateSaved ? <Check size={12} /> : <Bookmark size={12} />}
+                        <span className="hidden lg:inline">{templateSaved ? 'Template saved' : 'Save as template'}</span>
+                    </button>
+
+                    {projectId && (
+                        <button
+                            onClick={() => navigate(`/banners/${projectId}`)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-white/10 text-gray-300 hover:text-white transition"
+                            title="Open this banner's own page with a live preview"
+                        >
+                            <ExternalLink size={12} />
+                            <span className="hidden xl:inline">Banner page</span>
+                        </button>
+                    )}
 
                     {lastSavedAt && !saveSuccess && (
                         <span className="text-[10px] text-gray-400 hidden xl:inline">
@@ -498,6 +606,14 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
             <ProjectsModal
                 isOpen={showProjectsModal}
                 onClose={() => setShowProjectsModal(false)}
+            />
+
+            <SaveTemplateDialog
+                isOpen={showTemplateDialog}
+                defaultName={projectName ? `${projectName} Template` : 'Untitled Template'}
+                isSaving={savingTemplate}
+                onClose={() => setShowTemplateDialog(false)}
+                onSubmit={handleSaveAsTemplate}
             />
 
         </div>

@@ -13,7 +13,7 @@ let assetIdCounter = 0;
 const nextElementId = () => `el-asset-${++assetIdCounter}`;
 
 export const AssetsPanel: React.FC = () => {
-    const { addElement } = useDesignStore();
+    const { addElement, projectId } = useDesignStore();
     const [search, setSearch] = useState('');
     const [assets, setAssets] = useState<FirebaseAsset[]>([]);
     const [uploadingCount, setUploadingCount] = useState(0);
@@ -53,7 +53,7 @@ export const AssetsPanel: React.FC = () => {
                 await uploadAndSaveAsset(file, (pct) => {
                     const overall = Math.round(((i + pct / 100) / validFiles.length) * 100);
                     setUploadProgress(overall);
-                });
+                }, projectId || undefined);
             }
         } catch (err) {
             console.error('Upload failed:', err);
