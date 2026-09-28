@@ -230,7 +230,11 @@ export const buildVideoAutoplayEvent = (id: string): string =>
 /**
  * JS timeline entry driving the ISI tray's own scroll clock. It is intentionally
  * independent of the banner timeline: it waits `startDelayMs`, then scrolls the
- * content top -> bottom over `scrollDuration` seconds and repeats forever.
+ * content top -> bottom over `scrollDuration` seconds, holds at the bottom for
+ * `holdDuration` seconds, then snaps back to the top and repeats forever.
+ *
+ * Hovering the tray pauses the clock (and leaving resumes it from the same
+ * spot), matching the in-app preview.
  */
 export const buildIsiScrollEvent = (opts: {
     contentId: string;
@@ -238,8 +242,11 @@ export const buildIsiScrollEvent = (opts: {
     startDelayMs: number;
     /** Seconds for one full top -> bottom pass (defaults to 60). */
     scrollDuration?: number;
+    /** Seconds to hold at the bottom before resetting (defaults to 3). */
+    holdDuration?: number;
 }): string => {
     const scrollDuration = Math.max(1, opts.scrollDuration || 60);
+    const holdDuration = Math.max(0, opts.holdDuration ?? 3);
     return (
         '      { time: ' + Math.max(0, Math.round(opts.startDelayMs)) + ', action: () => {\n' +
         '        const content = document.getElementById(' + jsStringLiteral(opts.contentId) + ');\n' +
@@ -249,12 +256,23 @@ export const buildIsiScrollEvent = (opts: {
         '          const maxScroll = content.scrollHeight - parent.clientHeight;\n' +
         '          if (maxScroll > 0) {\n' +
         '            const track = parent.querySelector(".iScrollVerticalScrollbar");\n' +
-        '            let start = null;\n' +
+        '            var elapsed = 0;\n' +
+        '            var last = null;\n' +
+        '            var paused = false;\n' +
+        '            // Hover freezes the tray; leaving resumes from the same spot.\n' +
+        '            const tray = content.closest(".isi-main") || parent;\n' +
+        '            tray.addEventListener("mouseenter", function () { paused = true; });\n' +
+        '            tray.addEventListener("mouseleave", function () { paused = false; });\n' +
         '            const animate = (timestamp) => {\n' +
-        '              if (!start) start = timestamp;\n' +
-        '              const elapsed = (timestamp - start) / 1000;\n' +
-        '              // ISI own clock: scroll top->bottom over the configured duration, then reset to the top and repeat.\n' +
-        '              const progress = Math.min((elapsed % ' + scrollDuration + ') / ' + scrollDuration + ', 1);\n' +
+        '              if (last === null) last = timestamp;\n' +
+        '              const dt = (timestamp - last) / 1000;\n' +
+        '              last = timestamp;\n' +
+        '              if (paused) { requestAnimationFrame(animate); return; }\n' +
+        '              elapsed += dt;\n' +
+        '              // ISI own clock: scroll top->bottom, hold at the bottom, then reset.\n' +
+        '              const cycle = ' + (scrollDuration + holdDuration) + ';\n' +
+        '              const phase = elapsed % cycle;\n' +
+        '              const progress = phase < ' + scrollDuration + ' ? phase / ' + scrollDuration + ' : 1;\n' +
         '              content.style.transform = "translateY(" + (-maxScroll * progress) + "px)";\n' +
         '              if (indicator && track) {\n' +
         '                const indicatorY = progress * (track.clientHeight - (indicator.clientHeight || 13));\n' +

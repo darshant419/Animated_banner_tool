@@ -597,6 +597,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
 
             {/* Animation Studio Modal Dialogue */}
             <AnimationDialog
+                key={animationStudioTab}
                 isOpen={isAnimationStudioOpen}
                 onClose={() => setIsAnimationStudioOpen(false)}
                 initialTab={animationStudioTab}

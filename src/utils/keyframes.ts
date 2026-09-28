@@ -230,7 +230,7 @@ export const getElementKeyframes = (el: DesignElement, totalDuration?: number): 
     // If manual keyframes exist
     if (el.anim && el.anim.keyframes.length > 0) {
         if (el.enterAnimation && el.enterAnimation !== 'none') {
-            const enter = presetToKeyframes(el, el.enterAnimation, el.enterDelay || 0);
+            const enter = presetToKeyframes(el, el.enterAnimation, el.enterDelay || 0, undefined, el.enterEasing);
             const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
             const shifted = el.anim.keyframes.map((f) => ({ ...f, id: uid(), time: f.time + enterEnd }));
             return [...enter, ...shifted].sort((a, b) => a.time - b.time);
@@ -240,7 +240,7 @@ export const getElementKeyframes = (el: DesignElement, totalDuration?: number): 
 
     const enterPreset = el.enterAnimation || el.animation || 'none';
     const enter = enterPreset !== 'none'
-        ? presetToKeyframes(el, enterPreset, el.enterDelay || el.animationDelay || 0)
+        ? presetToKeyframes(el, enterPreset, el.enterDelay ?? el.animationDelay ?? 0, undefined, el.enterEasing)
         : [];
     const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
 
@@ -278,15 +278,44 @@ export const getElementKeyframes = (el: DesignElement, totalDuration?: number): 
         .flat();
 
     const exit = el.exitAnimation && el.exitAnimation !== 'none'
-        ? presetToKeyframes(el, el.exitAnimation, 0).map((f) => ({
+        ? presetToKeyframes(el, el.exitAnimation, 0, undefined, el.exitEasing).map((f) => ({
             ...f,
             id: uid(),
             time: f.time + mainEnd + (el.exitDelay || 0),
         }))
         : [];
 
-    return [...enter, ...mainFrames, ...blocks, ...exit].sort((a, b) => a.time - b.time);
+    const frames = [...enter, ...mainFrames, ...blocks, ...exit].sort((a, b) => a.time - b.time);
+
+    // `stay` (the default) needs no extra frames: the last keyframe already
+    // leaves the element at its resting state, so it remains visible for the
+    // rest of the banner. `hide` appends a fade-out when the banner ends so
+    // the element disappears even though no exit preset was chosen.
+    if (el.endBehavior === 'hide' && exit.length === 0 && totalDuration && totalDuration > mainEnd) {
+        const rest = getElementBaseState(el);
+        const from = frames.length > 0
+            ? { ...rest, ...lastDefined(frames[frames.length - 1], rest) }
+            : rest;
+        frames.push(kf(mainEnd, { ...from, easing: el.exitEasing || 'power1.in' }));
+        frames.push(kf(totalDuration, { ...from, opacity: 0, easing: el.exitEasing || 'power1.in' }));
+    }
+
+    return frames;
 };
+
+/** Reads the visual channels of a keyframe, falling back to the element's base state. */
+const lastDefined = (
+    frame: AnimationKeyframe,
+    base: ElementBaseState,
+): Partial<AnimationKeyframe> => ({
+    x: frame.x ?? base.x,
+    y: frame.y ?? base.y,
+    rotation: frame.rotation ?? base.rotation,
+    scaleX: frame.scaleX ?? base.scaleX,
+    scaleY: frame.scaleY ?? base.scaleY,
+    opacity: frame.opacity ?? base.opacity,
+    blur: frame.blur ?? base.blur,
+});;
 
 /** A colored segment describing one animation block's timeframe on the timeline. */
 export interface ElementAnimationSegment {
@@ -304,7 +333,7 @@ export const getElementAnimationSegments = (el: DesignElement): ElementAnimation
     const hasExplicitEnter = !!el.enterAnimation && el.enterAnimation !== 'none';
     const enterPreset = el.enterAnimation || el.animation || 'none';
     const enter = enterPreset !== 'none'
-        ? presetToKeyframes(el, enterPreset, el.enterDelay || el.animationDelay || 0)
+        ? presetToKeyframes(el, enterPreset, el.enterDelay ?? el.animationDelay ?? 0)
         : [];
     const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
 

@@ -640,6 +640,126 @@ export const getLoopAnimationGroups = () => {
 };
 
 /**
+ * Tabs that surface a preset picker. `sequence` shows the whole catalog.
+ */
+export type AnimationTab = 'in' | 'out' | 'sequence';
+
+/**
+ * The single source of truth for "which presets belong on this tab".
+ * Shared by the Animation Studio and the Properties panel so both surfaces
+ * always offer the same ids and can therefore highlight each other's choice.
+ */
+export const matchesAnimationTab = (def: AnimistaDef, tab: AnimationTab): boolean => {
+    if (tab === 'in') return def.type === 'in' || (!def.type && !def.loop);
+    if (tab === 'out') return def.type === 'out';
+    return true;
+};
+
+/** Presets shown for a tab, in catalog order. */
+export const getPresetsForTab = (tab: AnimationTab): AnimistaDef[] =>
+    Object.values(ANIMISTA_ANIMATIONS).filter((def) => matchesAnimationTab(def, tab));
+
+/**
+ * Option groups for a preset `<select>`, grouped by category.
+ * Used by the Properties panel so it lists exactly what the Studio lists.
+ */
+export const getAnimationGroupsForTab = (tab: 'in' | 'out') => {
+    const byCategory = new Map<string, AnimistaDef[]>();
+    getPresetsForTab(tab).forEach((def) => {
+        const bucket = byCategory.get(def.category);
+        if (bucket) bucket.push(def);
+        else byCategory.set(def.category, [def]);
+    });
+    return [...byCategory.entries()].map(([label, defs]) => ({
+        label,
+        options: defs.map((d) => ({ value: d.id, label: d.label })),
+    }));
+};
+
+/**
+ * Directions offered by the Animation Studio's direction pad.
+ * Each direction may exist in more than one spelling in the catalog
+ * (e.g. `slide-in-top-left` and `slide-in-tl`), so every alias is tried.
+ */
+export const ANIMATION_DIRECTIONS = ['center', 'top', 'bottom', 'left', 'right', 'tl', 'tr', 'bl', 'br'] as const;
+
+export type AnimationDirection = (typeof ANIMATION_DIRECTIONS)[number];
+
+const DIRECTION_TOKENS: Record<AnimationDirection, string[]> = {
+    center: ['center'],
+    top: ['top'],
+    bottom: ['bottom'],
+    left: ['left'],
+    right: ['right'],
+    tl: ['top-left', 'tl'],
+    tr: ['top-right', 'tr'],
+    bl: ['bottom-left', 'bl'],
+    br: ['bottom-right', 'br'],
+};
+
+/** Longest first, so `slide-in-bottom-left` strips `-bottom-left`, not `-left`. */
+const ALL_DIRECTION_TOKENS = Object.values(DIRECTION_TOKENS)
+    .flat()
+    .sort((a, b) => b.length - a.length);
+
+const directionForToken = (token: string): AnimationDirection | undefined =>
+    (Object.keys(DIRECTION_TOKENS) as AnimationDirection[]).find((k) => DIRECTION_TOKENS[k].includes(token));
+
+/** Splits a preset id into its base name and direction, e.g. `slide-in-top-left` -> `slide-in` + `bl`. */
+export const splitDirection = (id: string): { base: string; direction: AnimationDirection } | null => {
+    for (const token of ALL_DIRECTION_TOKENS) {
+        if (!id.endsWith(`-${token}`)) continue;
+        const base = id.slice(0, -(token.length + 1));
+        if (!base) continue;
+        const direction = directionForToken(token);
+        if (direction) return { base, direction };
+    }
+    return null;
+};
+
+/**
+ * Resolves which catalog ids exist for each direction of a preset.
+ *
+ * Derived from the real catalog rather than guessed from the id, because the
+ * catalog only defines directional variants for *some* presets — a direction
+ * with no sibling must be disabled in the UI instead of silently doing nothing.
+ *
+ *   getDirectionVariants('slide-in-top') -> { top: 'slide-in-top', left: 'slide-in-left', ... }
+ */
+export const getDirectionVariants = (id: string): Partial<Record<AnimationDirection, string>> => {
+    const out: Partial<Record<AnimationDirection, string>> = {};
+    if (!ANIMISTA_ANIMATIONS[id]) return out;
+
+    // A directional preset keeps its base; a bare preset (`fade-in`) is its own base.
+    const parts = splitDirection(id);
+    const bases = parts ? [parts.base] : [id];
+
+    for (const base of bases) {
+        for (const direction of ANIMATION_DIRECTIONS) {
+            if (out[direction]) continue;
+            for (const token of DIRECTION_TOKENS[direction]) {
+                const candidate = `${base}-${token}`;
+                if (ANIMISTA_ANIMATIONS[candidate]) {
+                    out[direction] = candidate;
+                    break;
+                }
+            }
+            if (!out[direction] && direction === 'center' && ANIMISTA_ANIMATIONS[base]) {
+                out.center = base;
+            }
+        }
+    }
+    return out;
+};
+
+/** The direction a preset currently represents, or null if it has none. */
+export const getActiveDirection = (id: string): AnimationDirection | null => splitDirection(id)?.direction ?? null;
+
+/** Target preset id for a direction click, or null when the catalog has no such variant. */
+export const resolvePresetForDirection = (id: string, direction: AnimationDirection): string | null =>
+    getDirectionVariants(id)[direction] ?? null;
+
+/**
  * Filter presets by high-level type ('in' | 'loop' | 'out' | 'hover')
  */
 export const getPresetsByType = (type: AnimationType): AnimistaDef[] => {

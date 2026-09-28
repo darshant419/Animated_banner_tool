@@ -14,7 +14,7 @@ const makeNode = () => {
         rotation: (v?: number) => (v === undefined ? state.rotation : (state.rotation = v)),
         scaleX: (v?: number) => (v === undefined ? state.scaleX : (state.scaleX = v)),
         scaleY: (v?: number) => (v === undefined ? state.scaleY : (state.scaleY = v)),
-        letterSpacing: (_v?: number) => undefined,
+        letterSpacing: () => undefined,
     };
     return { node, state };
 };

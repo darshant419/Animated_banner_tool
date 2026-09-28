@@ -309,7 +309,9 @@ describe('video and ISI timeline entries', () => {
         expect(event).toContain('{ time: 2000, action: () => {');
         expect(event).toContain('const content = document.getElementById("isi-content-1");');
         expect(event).toContain('const indicator = document.getElementById("isi-indicator-1");');
-        expect(event).toContain('elapsed % 30');
+        // One cycle is the scroll pass plus the bottom hold (30s + 3s default).
+        expect(event).toContain('const cycle = 33;');
+        expect(event).toContain('const phase = elapsed % cycle;');
         expect(() => checkTimeline([event])).not.toThrow();
     });
 
@@ -321,7 +323,48 @@ describe('video and ISI timeline entries', () => {
         });
 
         expect(event).toContain('{ time: 0, action: () => {');
-        expect(event).toContain('elapsed % 60');
+        expect(event).toContain('const cycle = 63;');
+    });
+
+    it('holds at the bottom for the configured seconds before resetting', () => {
+        const event = buildIsiScrollEvent({
+            contentId: 'isi-content-1',
+            indicatorId: 'isi-indicator-1',
+            startDelayMs: 0,
+            scrollDuration: 20,
+            holdDuration: 5,
+        });
+
+        expect(event).toContain('const cycle = 25;');
+        // The scroll phase owns only the first 20s; afterwards progress pins to 1.
+        expect(event).toContain('phase < 20 ? phase / 20 : 1');
+        expect(() => checkTimeline([event])).not.toThrow();
+    });
+
+    it('treats a missing hold duration as the 3 second default', () => {
+        const event = buildIsiScrollEvent({
+            contentId: 'isi-content-1',
+            indicatorId: 'isi-indicator-1',
+            startDelayMs: 0,
+            scrollDuration: 10,
+            holdDuration: undefined,
+        });
+
+        expect(event).toContain('const cycle = 13;');
+    });
+
+    it('exposes hover-to-pause wiring in the exported script', () => {
+        const event = buildIsiScrollEvent({
+            contentId: 'isi-content-1',
+            indicatorId: 'isi-indicator-1',
+            startDelayMs: 0,
+        });
+
+        expect(event).toContain('content.closest(".isi-main")');
+        expect(event).toContain('tray.addEventListener("mouseenter", function () { paused = true; });');
+        expect(event).toContain('tray.addEventListener("mouseleave", function () { paused = false; });');
+        expect(event).toContain('if (paused) { requestAnimationFrame(animate); return; }');
+        expect(() => checkTimeline([event])).not.toThrow();
     });
 });
 

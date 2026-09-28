@@ -175,3 +175,64 @@ describe('suggestedDuration', () => {
         expect(suggestedDuration([el])).toBe(4.5);
     });
 });
+
+describe('animation synchronization contract', () => {
+    it('keeps explicit zero entrance delays ahead of legacy animationDelay', () => {
+        const el = makeElement({
+            enterAnimation: 'fade-in',
+            enterDelay: 0,
+            animationDelay: 2,
+            animationDuration: 1,
+        });
+
+        const frames = getElementKeyframes(el);
+        const segments = getElementAnimationSegments(el);
+
+        expect(frames[0].time).toBe(0);
+        expect(segments[0].start).toBe(0);
+    });
+
+describe('endBehavior', () => {
+    const entering = { enterAnimation: 'fade-in', animationDuration: 1 };
+
+    it('keeps the element visible for the rest of the banner by default', () => {
+        const frames = getElementKeyframes(makeElement(entering), 5);
+
+        // The last frame is the resting state, and no fade-out is appended.
+        expect(frames[frames.length - 1].opacity).toBe(100);
+        expect(frames[frames.length - 1].time).toBeLessThan(5);
+    });
+
+    it('stays visible when endBehavior is explicitly "stay"', () => {
+        const frames = getElementKeyframes(makeElement({ ...entering, endBehavior: 'stay' }), 5);
+        expect(frames[frames.length - 1].opacity).toBe(100);
+        expect(frames[frames.length - 1].time).toBeLessThan(5);
+    });
+
+    it('fades out at the end of the banner when endBehavior is "hide"', () => {
+        const frames = getElementKeyframes(makeElement({ ...entering, endBehavior: 'hide' }), 5);
+
+        const last = frames[frames.length - 1];
+        expect(last.time).toBe(5);
+        expect(last.opacity).toBe(0);
+    });
+
+    it('uses the chosen exit easing for the auto fade-out', () => {
+        const frames = getElementKeyframes(
+            makeElement({ ...entering, endBehavior: 'hide', exitEasing: 'power2.in' }),
+            4,
+        );
+        expect(frames[frames.length - 1].easing).toBe('power2.in');
+    });
+
+    it('does not auto fade-out when an explicit exit preset already exists', () => {
+        const frames = getElementKeyframes(
+            makeElement({ ...entering, endBehavior: 'hide', exitAnimation: 'fade-out' }),
+            5,
+        );
+        // The exit preset owns the disappearance; no extra appended fade is added.
+        expect(frames.filter((f) => f.time === 5)).toHaveLength(0);
+    });
+});
+
+});

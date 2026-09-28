@@ -10,6 +10,7 @@ import {
     serverTimestamp,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './firebase';
+import { removeUndefinedValues } from './firestoreUtils';
 import type { Artboard, DesignElement } from '../store/designStore';
 
 export interface FirebaseProject {
@@ -143,8 +144,9 @@ export async function saveProjectToFirestore(
     const projectId = project.id || `proj_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const now = Date.now();
 
+    const cleanProject = removeUndefinedValues(project);
     const payload = {
-        ...project,
+        ...cleanProject,
         id: projectId,
         updatedAt: isFirebaseConfigured() && db ? serverTimestamp() : now,
         version: (project.version || 0) + 1,

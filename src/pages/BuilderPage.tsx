@@ -27,14 +27,10 @@ export const BuilderPage: React.FC<BuilderPageProps> = ({ projectId, mode: route
     useEffect(() => {
         if (projectId) return undefined;
 
-        // Fresh builder: start from a clean design. The only local-state write
-        // is the ready flag; mode is already seeded from the route above.
+        // Fresh builder: start from a clean design. The initial status is already
+        // ready for this route, so no local state write is needed here.
         reset();
-        setStatus('ready');
         return undefined;
-        // The ready flag documents the "fresh canvas initialized" state — not a
-        // render cascade — so the set-state-in-effect warning is suppressed here.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
     }, [projectId, routeMode, reset]);
 
     useEffect(() => {

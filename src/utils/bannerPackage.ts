@@ -207,6 +207,7 @@ export async function buildBannerPackage({
                         indicatorId: isiIndicatorId,
                         startDelayMs: (el.isiStartDelay || 0) * 1000,
                         scrollDuration: el.isiScrollDuration,
+                        holdDuration: el.isiHoldDuration,
                     }),
                 );
             }

@@ -1,14 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-    X, RotateCcw, Sparkles, Search, Layers,
+    X, Sparkles, Search, Layers,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
     ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight,
-    Dot, Check, Zap, FastForward, RefreshCw, ChevronRight,
+    Dot, Check, Zap, FastForward,
 } from 'lucide-react';
-import { useDesignStore, type DesignElement } from '../../store/designStore';
+import { useDesignStore } from '../../store/designStore';
 import {
-    ANIMISTA_ANIMATIONS,
     animationLabel,
+    getPresetsForTab,
+    getDirectionVariants,
+    getActiveDirection,
+    resolvePresetForDirection,
+    type AnimationDirection,
 } from '../../utils/animations';
 import { applyStaggeredDelays, type StaggerOrder } from '../../utils/keyframes';
 
@@ -36,6 +40,19 @@ const EASING_PRESETS = [
     { id: 'linear', label: 'Linear' },
 ];
 
+/** 3x3 direction pad. Availability per preset comes from the catalog, not from guessing. */
+const DIRECTION_PAD: { id: AnimationDirection; icon: React.ReactNode; label: string }[] = [
+    { id: 'tl', icon: <ArrowUpLeft size={13} />, label: 'Top-Left' },
+    { id: 'top', icon: <ArrowUp size={13} />, label: 'Top' },
+    { id: 'tr', icon: <ArrowUpRight size={13} />, label: 'Top-Right' },
+    { id: 'left', icon: <ArrowLeft size={13} />, label: 'Left' },
+    { id: 'center', icon: <Dot size={17} />, label: 'Center' },
+    { id: 'right', icon: <ArrowRight size={13} />, label: 'Right' },
+    { id: 'bl', icon: <ArrowDownLeft size={13} />, label: 'Bottom-Left' },
+    { id: 'bottom', icon: <ArrowDown size={13} />, label: 'Bottom' },
+    { id: 'br', icon: <ArrowDownRight size={13} />, label: 'Bottom-Right' },
+];
+
 export const AnimationDialog: React.FC<AnimationDialogProps> = ({
     isOpen,
     onClose,
@@ -56,10 +73,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
     const [staggerOrder, setStaggerOrder] = useState<StaggerOrder>('bottomToTop');
     const [staggerTarget, setStaggerTarget] = useState<'enter' | 'main'>('enter');
 
-    useEffect(() => {
-        if (initialTab) setActiveTab(initialTab);
-    }, [initialTab]);
-
     const currentPreset = useMemo(() => {
         if (!selectedElement) return 'none';
         if (activeTab === 'in') return selectedElement.enterAnimation || selectedElement.animation || 'none';
@@ -67,20 +80,28 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
         return 'none';
     }, [selectedElement, activeTab]);
 
+    /** True when the element already plays an exit preset, which supersedes endBehavior. */
+    const currentPresetExitId = selectedElement?.exitAnimation && selectedElement.exitAnimation !== 'none'
+        ? selectedElement.exitAnimation
+        : null;
+
     const currentDuration = selectedElement?.animationDuration || 0.8;
     const currentDelay = activeTab === 'in'
         ? (selectedElement?.enterDelay ?? selectedElement?.animationDelay ?? 0)
         : (selectedElement?.exitDelay || 0);
+    const currentEasing = activeTab === 'out'
+        ? selectedElement?.exitEasing
+        : selectedElement?.enterEasing;
 
-    const allPresets = useMemo(() => Object.values(ANIMISTA_ANIMATIONS), []);
+    /** Direction variants that really exist in the catalog for the current preset. */
+    const directionVariants = useMemo(
+        () => (currentPreset === 'none' ? {} : getDirectionVariants(currentPreset)),
+        [currentPreset],
+    );
+    const activeDirection = currentPreset === 'none' ? null : getActiveDirection(currentPreset);
+    const hasDirections = Object.keys(directionVariants).length > 0;
 
-    const tabPresets = useMemo(() => {
-        return allPresets.filter((p) => {
-            if (activeTab === 'in') return p.type === 'in' || (!p.type && !p.loop);
-            if (activeTab === 'out') return p.type === 'out';
-            return true;
-        });
-    }, [allPresets, activeTab]);
+    const tabPresets = useMemo(() => getPresetsForTab(activeTab), [activeTab]);
 
     const availableCategories = useMemo(() => {
         const cats = new Set<string>();
@@ -115,23 +136,20 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
         }
     };
 
-    const handleDirectionSelect = (dir: string) => {
+    const handleDirectionSelect = (dir: AnimationDirection) => {
         if (!selectedElement || currentPreset === 'none') return;
-        let baseName = currentPreset;
-        const dirKeys = ['top', 'bottom', 'left', 'right', 'tl', 'tr', 'bl', 'br', 'center', 'up', 'down'];
-        dirKeys.forEach((k) => {
-            baseName = baseName.replace(new RegExp(`-${k}$`), '').replace(new RegExp(`-${k}-`), '-');
-        });
-        let newPreset = `${baseName}-${dir}`;
-        if (!ANIMISTA_ANIMATIONS[newPreset]) {
-            if (currentPreset.startsWith('slide-in')) newPreset = `slide-in-${dir}`;
-            else if (currentPreset.startsWith('slide-out')) newPreset = `slide-out-${dir}`;
-            else if (currentPreset.startsWith('fade-in')) newPreset = dir === 'center' ? 'fade-in' : `fade-in-${dir}`;
-            else if (currentPreset.startsWith('scale-in')) newPreset = `scale-in-${dir}`;
-            else if (currentPreset.startsWith('bounce-in')) newPreset = `bounce-in-${dir}`;
-            else if (currentPreset.startsWith('kenburns')) newPreset = `kenburns-${dir}`;
-        }
-        if (ANIMISTA_ANIMATIONS[newPreset]) handleSelectPreset(newPreset);
+        // Resolved against the real catalog: a direction with no sibling preset
+        // simply does nothing (and is disabled in the pad) instead of writing an
+        // id that does not exist.
+        const next = resolvePresetForDirection(currentPreset, dir);
+        if (!next || next === currentPreset) return;
+        handleSelectPreset(next);
+    };
+
+    const handleEasingSelect = (easingId?: string) => {
+        if (!selectedElement) return;
+        if (activeTab === 'out') updateElement(selectedElement.id, { exitEasing: easingId });
+        else updateElement(selectedElement.id, { enterEasing: easingId });
     };
 
     const handleApplyStagger = () => {
@@ -440,12 +458,19 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                         >
                             {/* Direction pad */}
                             <div className="p-4" style={{ borderBottom: '1px solid #1a1a28' }}>
-                                <label
-                                    className="text-[10px] font-semibold uppercase tracking-wider block mb-2"
-                                    style={{ color: '#5a5a7a' }}
-                                >
-                                    Direction
-                                </label>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label
+                                        className="text-[10px] font-semibold uppercase tracking-wider"
+                                        style={{ color: '#5a5a7a' }}
+                                    >
+                                        Direction
+                                    </label>
+                                    {activeDirection && (
+                                        <span className="text-[9px] font-mono uppercase" style={{ color: accent.color }}>
+                                            {activeDirection}
+                                        </span>
+                                    )}
+                                </div>
                                 <div
                                     className="grid"
                                     style={{
@@ -457,43 +482,56 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                         padding: 6,
                                     }}
                                 >
-                                    {[
-                                        { id: 'tl', icon: <ArrowUpLeft size={13} />, label: 'Top-Left' },
-                                        { id: 'top', icon: <ArrowUp size={13} />, label: 'Top' },
-                                        { id: 'tr', icon: <ArrowUpRight size={13} />, label: 'Top-Right' },
-                                        { id: 'left', icon: <ArrowLeft size={13} />, label: 'Left' },
-                                        { id: 'center', icon: <Dot size={17} />, label: 'Center' },
-                                        { id: 'right', icon: <ArrowRight size={13} />, label: 'Right' },
-                                        { id: 'bl', icon: <ArrowDownLeft size={13} />, label: 'Bottom-Left' },
-                                        { id: 'bottom', icon: <ArrowDown size={13} />, label: 'Bottom' },
-                                        { id: 'br', icon: <ArrowDownRight size={13} />, label: 'Bottom-Right' },
-                                    ].map((d) => (
-                                        <button
-                                            key={d.id}
-                                            onClick={() => handleDirectionSelect(d.id)}
-                                            title={d.label}
-                                            className="flex items-center justify-center rounded-lg transition"
-                                            style={{
-                                                height: 34,
-                                                background: '#13131e',
-                                                border: '1px solid #1e1e2e',
-                                                color: '#5a5a7a',
-                                            }}
-                                            onMouseEnter={(e) => {
-                                                (e.currentTarget as HTMLElement).style.background = `${accent.color}20`;
-                                                (e.currentTarget as HTMLElement).style.color = accent.color;
-                                                (e.currentTarget as HTMLElement).style.borderColor = accent.border;
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                (e.currentTarget as HTMLElement).style.background = '#13131e';
-                                                (e.currentTarget as HTMLElement).style.color = '#5a5a7a';
-                                                (e.currentTarget as HTMLElement).style.borderColor = '#1e1e2e';
-                                            }}
-                                        >
-                                            {d.icon}
-                                        </button>
-                                    ))}
+                                    {DIRECTION_PAD.map((d) => {
+                                        const variantId = directionVariants[d.id];
+                                        // A direction with no sibling preset cannot be
+                                        // applied, so it is disabled rather than
+                                        // silently doing nothing.
+                                        const disabled = !variantId;
+                                        const isActive = !!variantId && variantId === currentPreset;
+                                        return (
+                                            <button
+                                                key={d.id}
+                                                onClick={() => handleDirectionSelect(d.id)}
+                                                disabled={disabled}
+                                                title={
+                                                    disabled
+                                                        ? `${d.label} — not available for this preset`
+                                                        : d.label
+                                                }
+                                                className="flex items-center justify-center rounded-lg transition"
+                                                style={{
+                                                    height: 34,
+                                                    background: isActive ? `${accent.color}22` : '#13131e',
+                                                    border: `1px solid ${isActive ? accent.border : '#1e1e2e'}`,
+                                                    color: isActive ? accent.color : disabled ? '#2e2e42' : '#5a5a7a',
+                                                    opacity: disabled ? 0.45 : 1,
+                                                    cursor: disabled ? 'not-allowed' : 'pointer',
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    if (disabled || isActive) return;
+                                                    (e.currentTarget as HTMLElement).style.background = `${accent.color}20`;
+                                                    (e.currentTarget as HTMLElement).style.color = accent.color;
+                                                    (e.currentTarget as HTMLElement).style.borderColor = accent.border;
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    (e.currentTarget as HTMLElement).style.background = isActive ? `${accent.color}22` : '#13131e';
+                                                    (e.currentTarget as HTMLElement).style.color = isActive ? accent.color : disabled ? '#2e2e42' : '#5a5a7a';
+                                                    (e.currentTarget as HTMLElement).style.borderColor = isActive ? accent.border : '#1e1e2e';
+                                                }}
+                                            >
+                                                {d.icon}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
+                                {!hasDirections && (
+                                    <p className="mt-2 text-[10px] leading-snug" style={{ color: '#4a4a62' }}>
+                                        {currentPreset === 'none'
+                                            ? 'Pick a preset first to choose a direction.'
+                                            : 'This preset has no direction variants.'}
+                                    </p>
+                                )}
                             </div>
 
                             {/* Timing */}
@@ -570,24 +608,36 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
 
                                 {/* Easing */}
                                 <div className="space-y-2">
-                                    <span className="text-xs block" style={{ color: '#8a8aaa' }}>Easing</span>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs" style={{ color: '#8a8aaa' }}>Easing</span>
+                                        <span className="text-[10px] font-mono" style={{ color: '#5a5a7a' }}>
+                                            {currentEasing ?? 'default'}
+                                        </span>
+                                    </div>
                                     <div className="grid grid-cols-4 gap-1">
                                         {EASING_PRESETS.map((e) => {
-                                            const curEase = selectedElement?.animationDuration ? 'power2.out' : 'power2.out'; // placeholder
+                                            const isActive = currentEasing === e.id;
+                                            const disabled = !selectedElement;
                                             return (
                                                 <button
                                                     key={e.id}
+                                                    onClick={() => handleEasingSelect(e.id)}
+                                                    disabled={disabled}
                                                     className="py-1 text-[10px] rounded transition"
                                                     style={{
-                                                        background: '#13131e',
-                                                        border: '1px solid #1e1e2e',
-                                                        color: '#5a5a7a',
+                                                        background: isActive ? `${accent.color}20` : '#13131e',
+                                                        border: `1px solid ${isActive ? accent.border : '#1e1e2e'}`,
+                                                        color: isActive ? accent.color : '#5a5a7a',
+                                                        opacity: disabled ? 0.4 : 1,
+                                                        cursor: disabled ? 'not-allowed' : 'pointer',
                                                     }}
                                                     onMouseEnter={(ev) => {
+                                                        if (isActive || disabled) return;
                                                         (ev.currentTarget as HTMLElement).style.background = `${accent.color}20`;
                                                         (ev.currentTarget as HTMLElement).style.color = accent.color;
                                                     }}
                                                     onMouseLeave={(ev) => {
+                                                        if (isActive) return;
                                                         (ev.currentTarget as HTMLElement).style.background = '#13131e';
                                                         (ev.currentTarget as HTMLElement).style.color = '#5a5a7a';
                                                     }}
@@ -598,6 +648,68 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                             );
                                         })}
                                     </div>
+                                    {currentEasing && (
+                                        <button
+                                            onClick={() => handleEasingSelect(undefined)}
+                                            className="w-full py-1 text-[10px] rounded transition"
+                                            style={{ background: '#13131e', border: '1px solid #1e1e2e', color: '#5a5a7a' }}
+                                        >
+                                            Reset to preset easing
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* End behavior */}
+                                <div className="space-y-2 mt-4 pt-4" style={{ borderTop: '1px solid #1a1a28' }}>
+                                    <label
+                                        className="text-[10px] font-semibold uppercase tracking-wider"
+                                        style={{ color: '#5a5a7a' }}
+                                    >
+                                        After animation ends
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-1">
+                                        {([
+                                            { id: 'stay' as const, label: 'Stay on banner' },
+                                            { id: 'hide' as const, label: 'Disappear' },
+                                        ]).map((opt) => {
+                                            const isActive = (selectedElement?.endBehavior || 'stay') === opt.id;
+                                            const isDisabled = !selectedElement || !!currentPresetExitId;
+                                            return (
+                                                <button
+                                                    key={opt.id}
+                                                    type="button"
+                                                    disabled={isDisabled}
+                                                    title={
+                                                        currentPresetExitId
+                                                            ? 'An exit animation is set, so it is used instead of the plain fade'
+                                                            : opt.id === 'stay'
+                                                                ? 'The element remains visible for the rest of the banner'
+                                                                : 'The element fades out when the banner ends'
+                                                    }
+                                                    onClick={() => {
+                                                        if (selectedElement) updateElement(selectedElement.id, { endBehavior: opt.id });
+                                                    }}
+                                                    className="py-1.5 text-[10px] font-medium rounded transition"
+                                                    style={{
+                                                        background: isActive ? `${accent.color}20` : '#13131e',
+                                                        border: `1px solid ${isActive ? accent.border : '#1e1e2e'}`,
+                                                        color: isActive ? accent.color : '#5a5a7a',
+                                                        opacity: isDisabled ? 0.4 : 1,
+                                                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                                    }}
+                                                >
+                                                    {opt.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="text-[9px] leading-snug" style={{ color: '#3a3a52' }}>
+                                        {currentPresetExitId
+                                            ? 'An exit animation is set, so it is used instead of the plain fade.'
+                                            : (selectedElement?.endBehavior || 'stay') === 'stay'
+                                                ? 'The element stays visible after its entrance.'
+                                                : 'The element fades out when the banner ends.'}
+                                    </p>
                                 </div>
                             </div>
 

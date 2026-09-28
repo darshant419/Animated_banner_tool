@@ -96,6 +96,17 @@ export interface DesignElement {
     exitAnimation?: string;
     enterDelay?: number;
     exitDelay?: number;
+    /** Easing curve overrides applied to the generated entrance / exit keyframes. */
+    enterEasing?: string;
+    exitEasing?: string;
+    /**
+     * What happens to the element once its animation finishes.
+     * - `stay` (default): the element remains visible at its resting state for
+     *   the rest of the banner, e.g. a logo that only plays an entrance.
+     * - `hide`: the element fades out when the banner ends, even if the user
+     *   did not pick an exit preset.
+     */
+    endBehavior?: 'stay' | 'hide';
     // Additional timed animation blocks, each playing inside its own timeframe
     animations?: ElementTimedAnimation[];
     // Hover Effects
@@ -112,6 +123,10 @@ export interface DesignElement {
     isiStartDelay?: number;
     /** How long (seconds) the ISI content takes to scroll top→bottom before resetting (default 60). */
     isiScrollDuration?: number;
+    /** Seconds the ISI tray holds at the bottom once the content has fully
+     *  scrolled, before resetting to the top (default 3). Part of the ISI's own
+     *  clock, independent of the banner timeline. */
+    isiHoldDuration?: number;
     isiLogoSrc?: string;
     isiLogoLink?: string;
     isiLogoWidth?: number;

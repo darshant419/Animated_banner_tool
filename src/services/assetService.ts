@@ -113,7 +113,7 @@ export async function uploadAndSaveAsset(
         storagePath,
         type: file.type,
         size: file.size,
-        projectId,
+        ...(projectId ? { projectId } : {}),
         createdAt: Date.now(),
     };
 

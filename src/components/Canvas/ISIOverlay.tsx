@@ -28,9 +28,15 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
   const autoScroll = element.isiAutoStart !== false;
   const startDelayS = Math.max(0, element.isiStartDelay || 0);
   const scrollDurationS = Math.max(1, element.isiScrollDuration || 60);
+  // Once the content has scrolled fully to the bottom it holds there before
+  // snapping back to the top, so the last lines stay readable.
+  const holdDurationS = Math.max(0, element.isiHoldDuration ?? 3);
 
-  const latestRef = useRef({ element, scrollDurationS, autoScroll, startDelayS });
-  latestRef.current = { element, scrollDurationS, autoScroll, startDelayS };
+  const latestRef = useRef({ element, scrollDurationS, holdDurationS, autoScroll, startDelayS });
+
+  useEffect(() => {
+    latestRef.current = { element, scrollDurationS, holdDurationS, autoScroll, startDelayS };
+  }, [element, scrollDurationS, holdDurationS, autoScroll, startDelayS]);
 
   const getMaxScroll = useCallback((): number => {
     const el = latestRef.current.element;
@@ -60,7 +66,10 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
   const isiClockRef = useRef(0);        // seconds since the current pass began
   const isHoveredRef = useRef(false);
   const [isHovered, setIsHovered] = useState(false);
-  isHoveredRef.current = isHovered;
+
+  useEffect(() => {
+    isHoveredRef.current = isHovered;
+  }, [isHovered]);
 
   useEffect(() => {
     // Restart the ISI's own clock whenever auto-scroll or the start delay
@@ -80,7 +89,7 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
       const dt = Math.min((now - lastFrameRef.current) / 1000, 0.1);
       lastFrameRef.current = now;
 
-      const { scrollDurationS: dur } = latestRef.current;
+      const { scrollDurationS: dur, holdDurationS: hold } = latestRef.current;
       const maxScroll = getMaxScroll();
 
       if (maxScroll > 0 && !isHoveredRef.current) {
@@ -94,11 +103,17 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
           applyScroll(0);
         } else {
           isiClockRef.current += dt;
-          if (isiClockRef.current >= dur) {
-            // Pass complete → reset to the top, start the next pass.
+          const scrollEnd = dur;
+          const holdEnd = dur + hold;
+          if (isiClockRef.current >= holdEnd) {
+            // Hold finished → snap back to the top and start the next pass.
             isiClockRef.current = 0;
             manualOffsetRef.current = null;
             applyScroll(0);
+          } else if (isiClockRef.current >= scrollEnd) {
+            // Reached the bottom → hold there so the last lines stay readable.
+            manualOffsetRef.current = null;
+            applyScroll(maxScroll);
           } else if (manualOffsetRef.current === null) {
             applyScroll((maxScroll * isiClockRef.current) / dur);
           }
@@ -170,7 +185,9 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
       applyScroll(base + e.deltaY * 0.5);
       const { autoScroll: auto, startDelayS: delay, scrollDurationS: dur } = latestRef.current;
       if (auto) {
-        // Continue the auto pass from where the user scrolled to.
+        // Continue the auto pass from where the user scrolled to. Scrolling
+        // past the bottom edge leaves the clock inside the hold window, so the
+        // tray keeps the user's position instead of snapping back.
         ownClockRef.current = Math.max(ownClockRef.current, delay);
         isiClockRef.current = (scrollYRef.current / max) * dur;
         manualOffsetRef.current = null;
@@ -180,6 +197,57 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
     };
     zone.addEventListener('wheel', onWheel, { passive: false });
     return () => zone.removeEventListener('wheel', onWheel);
+  }, [applyScroll, getMaxScroll]);
+
+  // Hover pause: the auto-scroll freezes while the pointer is over the tray and
+  // resumes from the exact spot on leave. In edit mode the tray is click-through
+  // (`pointerEvents: 'none'`) so React's onMouseEnter/onMouseLeave never fire —
+  // we listen on the parent zone and hit-test the tray rect instead, matching the
+  // wheel handler above so hover works identically in edit mode AND preview.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const zone = container.parentElement || container;
+
+    const hits = (x: number, y: number) => {
+      const rect = container.getBoundingClientRect();
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      const inside = hits(e.clientX, e.clientY);
+      if (inside === isHoveredRef.current) return;
+      isHoveredRef.current = inside;
+      setIsHovered(inside);
+      if (!inside) {
+        // Hand control back to the auto pass from wherever the pointer left off.
+        const { autoScroll: auto, scrollDurationS: dur } = latestRef.current;
+        if (auto && !manualOffsetRef.current) {
+          const max = getMaxScroll();
+          if (max > 0) isiClockRef.current = (scrollYRef.current / max) * dur;
+        }
+        manualOffsetRef.current = null;
+      }
+    };
+
+    const onPointerLeave = () => {
+      if (!isHoveredRef.current) return;
+      isHoveredRef.current = false;
+      setIsHovered(false);
+      const { autoScroll: auto, scrollDurationS: dur } = latestRef.current;
+      if (auto && !manualOffsetRef.current) {
+        const max = getMaxScroll();
+        if (max > 0) isiClockRef.current = (scrollYRef.current / max) * dur;
+      }
+      manualOffsetRef.current = null;
+    };
+
+    zone.addEventListener('pointermove', onPointerMove);
+    zone.addEventListener('pointerleave', onPointerLeave);
+    return () => {
+      zone.removeEventListener('pointermove', onPointerMove);
+      zone.removeEventListener('pointerleave', onPointerLeave);
+    };
   }, [applyScroll, getMaxScroll]);
 
   // Scrollbar drag (preview only): pointer-drag the indicator (or click the
@@ -261,20 +329,8 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
       ref={containerRef}
       style={style}
       className="isi-rich-overlay"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => {
-        setIsHovered(false);
-        // Hand control back to the auto pass (if enabled), resuming from
-        // wherever the user scrolled to — seamless continuation.
-        if (autoScroll) {
-          const max = getMaxScroll();
-          if (max > 0) {
-            const { scrollDurationS: dur } = latestRef.current;
-            isiClockRef.current = (scrollYRef.current / max) * dur;
-          }
-        }
-        manualOffsetRef.current = null;
-      }}
+      data-isi-hovered={isHovered ? 'true' : undefined}
+      data-isi-hold={holdDurationS}
     >
       {/* Traditional patient_link header strip */}
       {headerText && (

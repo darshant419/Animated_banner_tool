@@ -10,6 +10,7 @@ import {
     serverTimestamp,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './firebase';
+import { removeUndefinedValues } from './firestoreUtils';
 import type { Artboard, DesignElement } from '../store/designStore';
 
 /**
@@ -163,8 +164,9 @@ export async function saveBannerTemplate(template: BannerTemplateInput): Promise
     const templateId = template.id || `tpl_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const now = Date.now();
 
+    const cleanTemplate = removeUndefinedValues(template);
     const payload = {
-        ...template,
+        ...cleanTemplate,
         id: templateId,
         updatedAt: isFirebaseConfigured() && db ? serverTimestamp() : now,
         version: (template.version || 0) + 1,

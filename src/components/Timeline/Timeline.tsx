@@ -136,6 +136,8 @@ export const Timeline: React.FC = () => {
   const playheadRef = useRef(playheadTime);
   const lastStoreSyncRef = useRef(0);
 
+  const displayTime = isPlaying ? uiTime : playheadTime;
+
   const trackWidth = Math.max(800, totalDuration * pps + 120);
   const [trackMinHeight, setTrackMinHeight] = useState(0);
 
@@ -155,7 +157,6 @@ export const Timeline: React.FC = () => {
 
   useEffect(() => {
     if (!isPlaying) {
-      setUiTime(playheadTime);
       playheadRef.current = playheadTime;
     }
   }, [isPlaying, playheadTime]);
@@ -499,7 +500,7 @@ export const Timeline: React.FC = () => {
             className="ml-2 flex items-center gap-1 font-mono text-[11px] px-2 py-1 rounded"
             style={{ background: '#08080e', border: '1px solid #222230' }}
           >
-            <span style={{ color: '#f0a050', fontWeight: 700 }}>{formatTimecode(uiTime)}</span>
+            <span style={{ color: '#f0a050', fontWeight: 700 }}>{formatTimecode(displayTime)}</span>
             <span style={{ color: '#3a3a4a' }}>/</span>
             <span style={{ color: '#5a5a6a' }}>{formatTimecode(totalDuration)}</span>
           </div>
@@ -815,7 +816,7 @@ export const Timeline: React.FC = () => {
               <div
                 className="absolute top-0 h-full pointer-events-none"
                 style={{
-                  left: uiTime * pps,
+                  left: displayTime * pps,
                   width: 1,
                   background: '#f0a050',
                   opacity: 0.4,
@@ -1002,7 +1003,7 @@ export const Timeline: React.FC = () => {
                 width: 1,
                 background: '#f0a050',
                 boxShadow: '0 0 6px #f0a05060',
-                transform: `translateX(${uiTime * pps}px)`,
+                transform: `translateX(${displayTime * pps}px)`,
               }}
             >
               {/* Grab strip */}

@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { useDesignStore } from '../../store/designStore';
 import { EASINGS } from '../../utils/keyframes';
+import { getAnimationGroupsForTab, animationLabel } from '../../utils/animations';
 
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
@@ -8,6 +9,28 @@ import {
     Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles, Upload,
 } from 'lucide-react';
 import { uploadMediaAsset } from '../../services/storageService';
+
+/**
+ * Preset options come straight from the shared Animista catalog, grouped by
+ * category, so this panel offers exactly the same ids the Animation Studio
+ * does. Keeping a hardcoded list here is what made the two surfaces disagree.
+ */
+const ENTRANCE_GROUPS = getAnimationGroupsForTab('in');
+const EXIT_GROUPS = getAnimationGroupsForTab('out');
+
+/**
+ * Older elements can still hold a legacy id (`fadeIn`, `zoomOut`, …) that is not
+ * in the catalog. Surface it as an extra option so the stored value stays
+ * visible and editable instead of silently resetting to "None".
+ */
+const withCurrentOption = (
+    groups: Array<{ label: string; options: Array<{ value: string; label: string }> }>,
+    current: string,
+): Array<{ label: string; options: Array<{ value: string; label: string }> }> => {
+    if (!current || current === 'none') return groups;
+    if (groups.some((g) => g.options.some((o) => o.value === current))) return groups;
+    return [...groups, { label: 'Current', options: [{ value: current, label: animationLabel(current) }] }];
+};
 
 export const PropertiesPanel: React.FC = () => {
     const {
@@ -51,6 +74,16 @@ export const PropertiesPanel: React.FC = () => {
             updateElement(selectedElement.id, { [key]: value });
         }
     };
+
+    // Canonical entrance/exit values, read the same way the Animation Studio reads
+    // them so a preset picked in either surface shows up selected in the other.
+    // `animation` / `animationDelay` are legacy fallbacks for older elements only.
+    const entranceValue = selectedElement
+        ? selectedElement.enterAnimation || selectedElement.animation || 'none'
+        : 'none';
+    const exitValue = selectedElement?.exitAnimation || 'none';
+    const entranceGroups = withCurrentOption(ENTRANCE_GROUPS, entranceValue);
+    const exitGroups = withCurrentOption(EXIT_GROUPS, exitValue);
 
     const wrapSelection = (before: string, after: string) => {
         if (!isiTextareaRef.current || !selectedElement) return;
@@ -683,41 +716,24 @@ return (
                         <label className="text-xs text-gray-400 mb-1 block">Entrance (In)</label>
                         <div className="flex items-center gap-2">
                             <select
-                                value={(selectedElement as typeof selectedElement & { enterAnimation?: string }).enterAnimation || selectedElement.animation || 'none'}
+                                value={entranceValue}
                                 onChange={(e) => {
-                                    handleChange('enterAnimation', e.target.value);
-                                    handleChange('animation', e.target.value);
+                                    const val = e.target.value;
+                                    handleChange('enterAnimation', val === 'none' ? undefined : val);
+                                    handleChange('animation', val === 'none' ? undefined : val);
                                 }}
                                 className="flex-1 border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
                             >
                                 <option value="none">None (Static)</option>
-                                <optgroup label="Fade">
-                                    <option value="fadeIn">Fade In</option>
-                                    <option value="fadeInTop">Fade In Top</option>
-                                    <option value="fadeInBottom">Fade In Bottom</option>
-                                    <option value="fadeInLeft">Fade In Left</option>
-                                    <option value="fadeInRight">Fade In Right</option>
-                                </optgroup>
-                                <optgroup label="Slide">
-                                    <option value="slideInTop">Slide In Top</option>
-                                    <option value="slideInBottom">Slide In Bottom</option>
-                                    <option value="slideInLeft">Slide In Left</option>
-                                    <option value="slideInRight">Slide In Right</option>
-                                </optgroup>
-                                <optgroup label="Scale & Zoom">
-                                    <option value="zoomIn">Zoom In</option>
-                                    <option value="scaleInCenter">Scale In Center</option>
-                                    <option value="scaleInTop">Scale In Top</option>
-                                    <option value="scaleInBottom">Scale In Bottom</option>
-                                </optgroup>
-                                <optgroup label="Flip & Rotate">
-                                    <option value="rotateIn">Rotate In</option>
-                                    <option value="flipInHorTop">Flip In Top</option>
-                                    <option value="flipInHorBottom">Flip In Bottom</option>
-                                </optgroup>
-                                <optgroup label="Blur">
-                                    <option value="blurIn">Blur In</option>
-                                </optgroup>
+                                {entranceGroups.map((group) => (
+                                    <optgroup key={group.label} label={group.label}>
+                                        {group.options.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                                {opt.label}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                ))}
                             </select>
 
                             <button
@@ -749,7 +765,7 @@ return (
                                 type="number"
                                 step="0.1"
                                 min="0"
-                                value={(selectedElement as any).enterDelay ?? selectedElement.animationDelay ?? 0}
+                                value={selectedElement.enterDelay ?? selectedElement.animationDelay ?? 0}
                                 onChange={(e) => {
                                     const val = Number(e.target.value);
                                     handleChange('enterDelay', val);
@@ -768,33 +784,74 @@ return (
                         </div>
                         <div className="flex items-center gap-2">
                             <select
-                                value={(selectedElement as any).exitAnimation || 'none'}
-                                onChange={(e) => handleChange('exitAnimation', e.target.value)}
+                                value={exitValue}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleChange('exitAnimation', val === 'none' ? undefined : val);
+                                }}
                                 className="flex-1 border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
                             >
                                 <option value="none">None</option>
-                                <option value="fadeOut">Fade Out</option>
-                                <option value="slideOutTop">Slide Out Top</option>
-                                <option value="slideOutBottom">Slide Out Bottom</option>
-                                <option value="slideOutLeft">Slide Out Left</option>
-                                <option value="slideOutRight">Slide Out Right</option>
-                                <option value="zoomOut">Zoom Out</option>
-                                <option value="rotateOut">Rotate Out</option>
+                                {exitGroups.map((group) => (
+                                    <optgroup key={group.label} label={group.label}>
+                                        {group.options.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                                {opt.label}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                ))}
                             </select>
 
-                            {(selectedElement as any).exitAnimation && (selectedElement as any).exitAnimation !== 'none' && (
+                            {selectedElement.exitAnimation && (
                                 <input
                                     type="number"
                                     step="0.1"
                                     min="0"
                                     placeholder="Exit at (s)"
-                                    value={(selectedElement as any).exitDelay || 0}
+                                    value={selectedElement.exitDelay || 0}
                                     onChange={(e) => handleChange('exitDelay', Number(e.target.value))}
                                     className="w-16 border border-[#2a2a35] rounded-lg px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100 font-mono text-center shrink-0"
                                     title="Exit start delay in seconds"
                                 />
                             )}
                         </div>
+                    </div>
+
+                    {/* End Behavior: stay on banner vs. disappear when the banner ends */}
+                    <div>
+                        <label className="text-xs text-gray-400 mb-1 block">After animation ends</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {([
+                                { value: 'stay', label: 'Stay on banner', hint: 'Remains visible for the rest of the banner' },
+                                { value: 'hide', label: 'Disappear', hint: 'Fades out when the banner ends' },
+                            ] as const).map((opt) => {
+                                const active = (selectedElement.endBehavior || 'stay') === opt.value;
+                                return (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => handleChange('endBehavior', opt.value)}
+                                        title={opt.hint}
+                                        className="px-2 py-1.5 text-[11px] font-medium rounded-lg border transition text-left"
+                                        style={{
+                                            background: active ? 'rgba(245, 158, 11, 0.12)' : '#1a1a21',
+                                            borderColor: active ? '#f59e0b' : '#2a2a35',
+                                            color: active ? '#fbbf24' : '#9ca3af',
+                                        }}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-1 leading-snug">
+                            {selectedElement.exitAnimation
+                                ? 'An exit animation is set, so it is used instead of the plain fade.'
+                                : (selectedElement.endBehavior || 'stay') === 'stay'
+                                    ? 'The element stays visible after its entrance.'
+                                    : 'The element fades out when the banner ends.'}
+                        </p>
                     </div>
 
                     {/* Stagger Sequence Shortcut */}
@@ -1505,8 +1562,27 @@ return (
                                         className="w-16 border border-[#232330] rounded px-2 py-1 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
                                     />
                                     <span className="text-[11px] text-gray-400">secs</span>
+                                    <span className="text-[10px] text-gray-500">· then holds</span>
+                                </div>
+                                <div className="flex items-center gap-2 pl-5">
+                                    <label className="text-[11px] text-gray-300 whitespace-nowrap" title="Seconds the ISI tray holds at the bottom after the content has fully scrolled, before it resets to the top. Measured on the ISI tray's own clock — independent of the banner animation.">
+                                        Hold at bottom
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        step={0.5}
+                                        value={selectedElement.isiHoldDuration ?? 3}
+                                        onChange={(e) => handleChange('isiHoldDuration', Math.max(0, Number(e.target.value) || 0))}
+                                        title="Seconds the ISI tray holds at the bottom after the content has fully scrolled, before it resets to the top. Measured on the ISI tray's own clock — independent of the banner animation."
+                                        className="w-16 border border-[#232330] rounded px-2 py-1 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                    />
+                                    <span className="text-[11px] text-gray-400">secs</span>
                                     <span className="text-[10px] text-gray-500">· then resets to top</span>
                                 </div>
+                                <p className="text-[10px] text-gray-500 pl-5 leading-snug">
+                                    Hovering the tray pauses the scroll in preview and in the downloaded HTML.
+                                </p>
                             </div>
                          </div>
                      </div>
