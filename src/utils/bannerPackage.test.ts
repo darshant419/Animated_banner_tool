@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildPreviewHtml, type BannerPackage } from './bannerPackage';
+import { buildBannerPackage, buildPreviewHtml, type BannerPackage } from './bannerPackage';
+import type { DesignElement } from '../store/designStore';
 
 const makePackage = (overrides: Partial<BannerPackage> = {}): BannerPackage => ({
     html: [
@@ -39,5 +40,91 @@ describe('buildPreviewHtml', () => {
         );
 
         expect(preview).toContain('images/image-el-1.png');
+    });
+});
+
+/** Banner with one text element; individual tests add links to it. */
+const buildPackage = (elements: DesignElement[]) =>
+    buildBannerPackage({
+        canvasWidth: 300,
+        canvasHeight: 250,
+        canvasBackground: '#ffffff',
+        totalDuration: 5,
+        loop: false,
+        elements,
+    });
+
+const bannerElement = (overrides: Partial<DesignElement> = {}): DesignElement => ({
+    id: 'el-hero',
+    type: 'text',
+    x: 20,
+    y: 30,
+    width: 160,
+    height: 50,
+    text: 'Hello',
+    fill: '#006937',
+    ...overrides,
+});
+
+describe('buildBannerPackage click tags', () => {
+    it('declares the click tags in the HTML head and in main.js', async () => {
+        const pkg = await buildPackage([bannerElement({ linkUrl: 'https://orserdu.com/efficacy/' })]);
+
+        expect(pkg.html).toContain('    var clickTag1 = "https://orserdu.com/efficacy/";');
+        expect(pkg.html).toContain('    var clickTag2 = "#";');
+        expect(pkg.html).toContain('    var clickTag3 = "#";');
+        expect(pkg.js).toContain('var clickTag1 = "https://orserdu.com/efficacy/";');
+    });
+
+    it('covers the element box with a transparent hotspot anchor', async () => {
+        const pkg = await buildPackage([
+            bannerElement({
+                linkUrl: 'https://pi.com/doc.pdf',
+                linkClickTag: 'clickTag3',
+                linkTarget: '_self',
+            }),
+        ]);
+
+        expect(pkg.html).toContain('<a id="link-el-hero" class="clicktag-area"');
+        expect(pkg.html).toContain('window.open(window.clickTag3, \'_self\')');
+        expect(pkg.html).toContain('left: 20px; top: 30px; width: 160px; height: 50px; z-index: 0;');
+        expect(pkg.css).toContain('.clicktag-area { position: absolute;');
+    });
+
+    it('emits no hotspot and no click tag when the element has no link', async () => {
+        const pkg = await buildPackage([bannerElement()]);
+
+        expect(pkg.html).not.toContain('clicktag-area');
+        expect(pkg.html).toContain('    var clickTag1 = "#";');
+    });
+
+    it('never exports a hotspot for a script URL', async () => {
+        const pkg = await buildPackage([bannerElement({ linkUrl: 'javascript:alert(1)' })]);
+
+        expect(pkg.html).not.toContain('clicktag-area');
+        expect(pkg.html).not.toContain('javascript:alert(1)');
+    });
+
+    it('keeps the ISI tray un-clickable but links its strip and logo', async () => {
+        const pkg = await buildPackage([
+            bannerElement({
+                id: 'isi-1',
+                type: 'isiScroll',
+                linkUrl: 'https://ignore-me.com/',
+                isiText: '<p>Safety</p>',
+                isiHeaderText: 'Prescribing Information',
+                isiHeaderLink: 'https://pi.com/doc.pdf',
+                isiHeaderClickTag: 'clickTag3',
+                isiLogoSrc: '/emr_assets/logo.png',
+                isiLogoLink: 'https://logo.com/',
+            }),
+        ]);
+
+        expect(pkg.html).not.toContain('link-isi-1');
+        // Header strip kept its explicit variable, the logo took the first free one.
+        expect(pkg.html).toContain('window.open(window.clickTag3, \'_blank\')');
+        expect(pkg.html).toContain('window.open(window.clickTag1, \'_blank\')');
+        expect(pkg.html).toContain('var clickTag1 = "https://logo.com/";');
+        expect(pkg.html).toContain('var clickTag3 = "https://pi.com/doc.pdf";');
     });
 });

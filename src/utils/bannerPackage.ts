@@ -3,11 +3,16 @@ import type { DesignElement } from '../store/designStore';
 import { getElementBaseState, getElementKeyframes } from './keyframes';
 import {
     buildAnimationStartEvent,
+    buildClickHotspot,
+    buildClickTagDeclarations,
+    buildClickTagPlan,
     buildElementAnimationCss,
     buildIsiScrollEvent,
+    buildLinkAttributes,
     buildMainJs,
     buildVideoAutoplayEvent,
-    jsStringLiteral,
+    collectLinkSources,
+    linkKey,
 } from './bannerExport';
 
 /**
@@ -75,6 +80,8 @@ const BASE_CSS_LINES: string[] = [
     '.isi .mt-5 { margin-top: 5px; }',
     '.iScrollVerticalScrollbar { background-color: #006937; border-radius: 5px; border-top: 1px solid #006937; border-bottom: 1px solid #006937; top: 0px !important; right: 3px !important; height: 66% !important; width: 8px !important; position: absolute; z-index: 9999; overflow: visible !important; margin-top: 5px; padding: 0px; }',
     '.iScrollIndicator { border-radius: 5px; width: 6px !important; height: 13px !important; margin-top: 0px !important; right: 1px !important; position: absolute; background: #f2f2f2; cursor: pointer; display: block !important; }',
+    // Transparent anchor over a linked element: the element's box is the click area.
+    '.clicktag-area { position: absolute; display: block; cursor: pointer; text-decoration: none; }',
 ];
 
 const blobToDataUrl = (blob: Blob): Promise<string> =>
@@ -113,6 +120,11 @@ export async function buildBannerPackage({
     const timelineEvents: string[] = [];
     const images: BannerPackageImage[] = [];
 
+    // Every link on the banner resolved against the clickTag1..3 variables the
+    // exported HTML declares: element boxes become transparent hotspot anchors,
+    // the ISI strip / logo go through the same variables.
+    const linkPlan = buildClickTagPlan(collectLinkSources(elements));
+
     const htmlParts: string[] = [
         '<!DOCTYPE html>',
         '<html class="no-js" lang="en">',
@@ -126,9 +138,7 @@ export async function buildBannerPackage({
         '  <link rel="stylesheet" href="css/styles.css" />',
         '  <meta name="ad.size" content="width=' + canvasWidth + ',height=' + canvasHeight + '" />',
         '  <script type="text/javascript">',
-        '    var clickTag1 = ' + jsStringLiteral(canvasBackground) + ';',
-        '    var clickTag2 = "#";',
-        '    var clickTag3 = "#";',
+        ...buildClickTagDeclarations(linkPlan.declarations).map((line) => '    ' + line),
         '  </script>',
         '  <script src="js/main.js"></script>',
         '</head>',
@@ -181,17 +191,36 @@ export async function buildBannerPackage({
                 '#' + id + ' .isi .isi-logo { width: ' + logoWidth + 'px; }',
             );
 
+            // ISI sub-links resolved against the same clickTag variables, so the
+            // PI strip / logo can be labelled with a click tag like any hotspot.
+            const isiHeaderLink = linkPlan.byElementSlot[linkKey(el.id, 'isiHeader')];
+            const isiLogoLink = linkPlan.byElementSlot[linkKey(el.id, 'isiLogo')];
+            const logoImgTag = (className: string, extraStyle: string) =>
+                '<img ' +
+                (className ? 'class="' + className + '" ' : '') +
+                'src="' +
+                el.isiLogoSrc +
+                '" style="width: ' +
+                logoWidth +
+                'px; height: auto;' +
+                extraStyle +
+                '">';
+            const logoMarkup = (className: string, extraStyle: string) =>
+                isiLogoLink
+                    ? '<a ' + buildLinkAttributes(isiLogoLink) + '>' + logoImgTag(className, extraStyle) + '</a>'
+                    : logoImgTag(className, extraStyle);
+
             let inner = '';
             if (el.isiLogoSrc && (el.isiLogoPosition || 'bottom') === 'top') {
-                inner += '<img src="' + el.isiLogoSrc + '" style="width: ' + logoWidth + 'px; height: auto; display:block; margin-bottom:10px;">';
+                inner += logoMarkup('', ' display:block; margin-bottom:10px;');
             }
             inner += '<div>' + (el.isiText || '') + '</div>';
             if (el.isiLogoSrc && (el.isiLogoPosition || 'bottom') !== 'top') {
-                inner += '<img class="mb-10 isi-logo" src="' + el.isiLogoSrc + '" style="width: ' + logoWidth + 'px; height: auto;">';
+                inner += logoMarkup('mb-10 isi-logo', '');
             }
 
             const headerMarkup = el.isiHeaderText
-                ? '        <div class="patient_link">\n          <p style="font-size:10px;padding: 3px 5px 5px 11px;background-color: ' + headerBg + ';font-family: Arial, Helvetica, sans-serif;font-weight: bold;margin: 5px 0 10px 0;">\n            <a href="' + (el.isiHeaderLink || '#') + '" target="_blank" style="color:' + headerCol + ';text-decoration:underline;text-underline-offset: 1px;font-weight:bold;">' + (el.isiHeaderText) + '</a>\n          </p>\n        </div>'
+                ? '        <div class="patient_link">\n          <p style="font-size:10px;padding: 3px 5px 5px 11px;background-color: ' + headerBg + ';font-family: Arial, Helvetica, sans-serif;font-weight: bold;margin: 5px 0 10px 0;">\n            <a ' + (isiHeaderLink ? buildLinkAttributes(isiHeaderLink) : 'href="' + (el.isiHeaderLink || '#') + '" target="_blank"') + ' style="color:' + headerCol + ';text-decoration:underline;text-underline-offset: 1px;font-weight:bold;">' + (el.isiHeaderText) + '</a>\n          </p>\n        </div>'
                 : '';
             const isiElemId = 'isi-content-' + el.id;
             const isiIndicatorId = 'isi-indicator-' + el.id;
@@ -259,8 +288,26 @@ export async function buildBannerPackage({
             continue;
         }
 
+        // Click tag: a transparent anchor over the element's exact box turns it
+        // into the clickable area of the exported banner.
+        const boxLink = linkPlan.byElementSlot[linkKey(el.id, 'box')];
+        if (boxLink) {
+            htmlBodyParts.push(
+                buildClickHotspot({
+                    id: 'link-' + el.id,
+                    x: el.x,
+                    y: el.y,
+                    width: el.width || 0,
+                    height: el.height || 0,
+                    z,
+                    link: boxLink,
+                }),
+            );
+        }
+
         // Convert keyframes to a CSS @keyframes rule + a timeline event that
-        // attaches the animation at the element's start time.
+        // attaches the animation when the document loads (the keyframe
+        // percentages already carry each element's position on the timeline).
         const kfs = getElementKeyframes(el, totalDuration);
         const loopAnim = el.anim?.loop === true || el.animationLoop === true;
         const animationCss = buildElementAnimationCss({
@@ -315,7 +362,7 @@ export async function buildBannerPackage({
             '</html>',
         ].join('\n'),
         css: cssLines.join('\n'),
-        js: buildMainJs(timelineEvents, canvasBackground),
+        js: buildMainJs(timelineEvents, linkPlan.declarations),
         images,
     };
 }

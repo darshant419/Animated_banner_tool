@@ -6,16 +6,26 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
     buildAnimationStartEvent,
+    buildClickHotspot,
+    buildClickTagDeclarations,
+    buildClickTagPlan,
     buildElementAnimationCss,
     buildIsiScrollEvent,
+    buildLinkAttributes,
     buildMainJs,
     buildVideoAutoplayEvent,
+    collectLinkSources,
+    escapeHtmlAttribute,
     gsapEaseToCss,
+    isSafeLinkUrl,
     jsStringLiteral,
+    linkKey,
+    normalizeLinkUrl,
 } from './bannerExport';
 import { getElementBaseState, getElementKeyframes } from './keyframes';
 import type { ElementBaseState } from './keyframes';
 import type { AnimationKeyframe, DesignElement } from '../store/designStore';
+import type { LinkSource } from './bannerExport';
 
 /** Compiles a snippet the same way the browser parses `js/main.js`. */
 const compile = (code: string) => new Function(code);
@@ -167,9 +177,17 @@ describe('buildElementAnimationCss', () => {
             elY: 80,
             totalDuration: 5,
         });
-        expect(hidden!.startDelayMs).toBe(1000);
+        // Percentages are absolute master-timeline positions (1s -> 20%,
+        // 1.8s -> 36%) and the animation attaches with the document, so the
+        // entrance lands on the same wall-clock second as in the editor.
+        expect(hidden!.startDelayMs).toBe(0);
         expect(hidden!.durationMs).toBe(5000);
         expect(hidden!.initialHidden).toBe(true);
+        // A synthesized 0% step holds the hidden state until the entrance
+        // starts instead of interpolating from the resting state.
+        expect(hidden!.css[1]).toBe('  0.00% { opacity: 0; transform: translate(0px, 0px); }');
+        expect(hidden!.css[2]).toBe('  20.00% { opacity: 0; transform: translate(0px, 0px); }');
+        expect(hidden!.css[3]).toBe('  36.00% { opacity: 1; transform: translate(0px, 0px); }');
 
         const visible = buildElementAnimationCss({
             id: 'el-6',
@@ -381,7 +399,7 @@ describe('buildMainJs', () => {
                 }),
                 buildVideoAutoplayEvent('vid-1'),
             ],
-            'https://example.com/',
+            [{ name: 'clickTag1', url: 'https://example.com/' }],
         );
 
         expect(() => compile(mainJs)).not.toThrow();
@@ -394,14 +412,14 @@ describe('buildMainJs', () => {
     });
 
     it('escapes clickTag values instead of breaking the file', () => {
-        const mainJs = buildMainJs([], 'https://example.com/?q="broken');
+        const mainJs = buildMainJs([], [{ name: 'clickTag1', url: 'https://example.com/?q="broken' }]);
 
         expect(() => compile(mainJs)).not.toThrow();
         expect(mainJs).toContain('var clickTag1 = "https://example.com/?q=\\"broken";');
     });
 
     it('only documents the empty timeline when there is nothing to animate', () => {
-        const mainJs = buildMainJs([], 'https://example.com/');
+        const mainJs = buildMainJs([], [{ name: 'clickTag1', url: 'https://example.com/' }]);
 
         expect(() => compile(mainJs)).not.toThrow();
         expect(mainJs).toContain('var animationTimeline = [\n];');
@@ -424,7 +442,7 @@ describe('buildMainJs', () => {
                         animationName: 'anim-el-hero',
                     }),
                 ],
-                'https://example.com/',
+                [{ name: 'clickTag1', url: 'https://example.com/' }],
             );
 
             new Function('document', 'window', mainJs)(dom, fakeWindow);
@@ -471,10 +489,16 @@ describe('export pipeline (element -> @keyframes CSS -> js/main.js)', () => {
 
         if (!animation) throw new Error('expected the element to produce animation CSS');
 
-        // The entrance starts at 1s of a 5s master timeline: 20% -> 36%.
-        expect(animation.startDelayMs).toBe(1000);
+        // The entrance starts at 1s of a 5s master timeline: 20% -> 36%,
+        // held from a synthesized 0% step so nothing moves before then and the
+        // whole timeline (including an end-of-banner fade) stays in sync.
+        expect(animation.startDelayMs).toBe(0);
         expect(animation.durationMs).toBe(5000);
         expect(animation.initialHidden).toBe(true);
+        expect(animation.css).toContain(
+            '  0.00% { opacity: 0; transform: translate(0px, 0px);' +
+            ' animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1); }',
+        );
         expect(animation.css).toContain(
             '  20.00% { opacity: 0; transform: translate(0px, 0px);' +
             ' animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1); }',
@@ -494,12 +518,244 @@ describe('export pipeline (element -> @keyframes CSS -> js/main.js)', () => {
                     animationName: animation.animationName,
                 }),
             ],
-            'https://example.com/',
+            [{ name: 'clickTag1', url: 'https://example.com/' }],
         );
 
         expect(() => compile(mainJs)).not.toThrow();
         expect(mainJs).toContain('var clickTag1 = "https://example.com/";');
         expect(mainJs).toContain('el.style.animation = "5000ms linear anim-el-hero";');
         expect(mainJs).not.toContain('style.animation:');
+    });
+});
+
+/** Minimal element factory for the click-tag suites. */
+const linked = (overrides: Partial<DesignElement> = {}): DesignElement => ({
+    id: 'el-1',
+    type: 'text',
+    x: 10,
+    y: 20,
+    width: 100,
+    height: 40,
+    ...overrides,
+});
+
+describe('normalizeLinkUrl / isSafeLinkUrl', () => {
+    it('adds https:// to a bare domain', () => {
+        expect(normalizeLinkUrl('www.example.com/cta')).toBe('https://www.example.com/cta');
+        expect(normalizeLinkUrl(' example.com ')).toBe('https://example.com');
+        expect(normalizeLinkUrl('example.com?a=1#b')).toBe('https://example.com?a=1#b');
+    });
+
+    it('leaves real URLs and relative destinations untouched', () => {
+        expect(normalizeLinkUrl('https://a.com/x')).toBe('https://a.com/x');
+        expect(normalizeLinkUrl('mailto:a@b.com')).toBe('mailto:a@b.com');
+        expect(normalizeLinkUrl('/legal/pi')).toBe('/legal/pi');
+        expect(normalizeLinkUrl('#anchor')).toBe('#anchor');
+        expect(normalizeLinkUrl('')).toBe('');
+    });
+
+    it('accepts http(s), mailto, tel and relative links only', () => {
+        expect(isSafeLinkUrl('https://a.com')).toBe(true);
+        expect(isSafeLinkUrl('http://a.com')).toBe(true);
+        expect(isSafeLinkUrl('mailto:a@b.com')).toBe(true);
+        expect(isSafeLinkUrl('tel:+123')).toBe(true);
+        expect(isSafeLinkUrl('/path')).toBe(true);
+    });
+
+    it('rejects script-carrying and empty destinations', () => {
+        expect(isSafeLinkUrl('javascript:alert(1)')).toBe(false);
+        expect(isSafeLinkUrl('JaVaScRiPt:alert(1)')).toBe(false);
+        expect(isSafeLinkUrl('data:text/html,<script>1</script>')).toBe(false);
+        expect(isSafeLinkUrl('vbscript:msgbox')).toBe(false);
+        expect(isSafeLinkUrl('example.com')).toBe(false);
+        expect(isSafeLinkUrl('')).toBe(false);
+        expect(isSafeLinkUrl(undefined)).toBe(false);
+    });
+});
+
+describe('escapeHtmlAttribute', () => {
+    it('neutralises everything that could break out of an attribute', () => {
+        expect(escapeHtmlAttribute('a"b')).toBe('a&quot;b');
+        expect(escapeHtmlAttribute("a'b")).toBe('a&#39;b');
+        expect(escapeHtmlAttribute('a&b')).toBe('a&amp;b');
+        expect(escapeHtmlAttribute('<img>')).toBe('&lt;img&gt;');
+        expect(escapeHtmlAttribute('https://a.com/?a=1&b=2')).toBe('https://a.com/?a=1&amp;b=2');
+    });
+});
+
+describe('collectLinkSources', () => {
+    it('collects one box link per visible element and skips hidden layers', () => {
+        const sources = collectLinkSources([
+            linked({ id: 'el-1', linkUrl: 'https://a.com/' }),
+            linked({ id: 'el-2', linkUrl: 'https://b.com/', visible: false }),
+            linked({ id: 'el-3' }),
+        ]);
+
+        expect(sources).toEqual([
+            { elementId: 'el-1', slot: 'box', url: 'https://a.com/', target: '_blank', clickTag: undefined },
+        ]);
+    });
+
+    it('honours same-window targets and normalises the URL', () => {
+        const sources = collectLinkSources([
+            linked({ id: 'el-1', linkUrl: 'example.com/cta', linkTarget: '_self' }),
+        ]);
+
+        expect(sources[0]).toMatchObject({ url: 'https://example.com/cta', target: '_self' });
+    });
+
+    it('drops unsafe destinations entirely', () => {
+        expect(collectLinkSources([linked({ linkUrl: 'javascript:alert(1)' })])).toEqual([]);
+    });
+
+    it('never gives the ISI tray a box hotspot, but keeps its strip and logo links', () => {
+        const sources = collectLinkSources([
+            linked({
+                id: 'isi-1',
+                type: 'isiScroll',
+                linkUrl: 'https://ignore-me.com/',
+                isiHeaderText: 'Prescribing Information',
+                isiHeaderLink: 'https://pi.com/doc.pdf',
+                isiLogoSrc: '/emr_assets/logo.png',
+                isiLogoLink: 'https://logo.com/',
+            }),
+        ]);
+
+        expect(sources.map((s) => s.slot)).toEqual(['isiHeader', 'isiLogo']);
+        expect(sources[0]).toMatchObject({ elementId: 'isi-1', slot: 'isiHeader', url: 'https://pi.com/doc.pdf' });
+    });
+
+    it('only reports ISI sub-links that are actually rendered', () => {
+        // A link without header text / logo source would never be emitted.
+        expect(collectLinkSources([
+            linked({ id: 'isi-1', type: 'isiScroll', isiHeaderLink: 'https://pi.com/', isiLogoLink: 'https://logo.com/' }),
+        ])).toEqual([]);
+    });
+});
+
+describe('buildClickTagPlan', () => {
+    const source = (overrides: Partial<LinkSource> = {}): LinkSource => ({
+        elementId: 'el-1',
+        slot: 'box',
+        url: 'https://a.com/',
+        target: '_blank',
+        ...overrides,
+    });
+
+    it('assigns clickTag1, clickTag2 and clickTag3 in element order', () => {
+        const plan = buildClickTagPlan([
+            source({ elementId: 'el-1', url: 'https://a.com/' }),
+            source({ elementId: 'el-2', url: 'https://b.com/' }),
+            source({ elementId: 'el-3', url: 'https://c.com/' }),
+        ]);
+
+        expect(plan.declarations).toEqual([
+            { name: 'clickTag1', url: 'https://a.com/' },
+            { name: 'clickTag2', url: 'https://b.com/' },
+            { name: 'clickTag3', url: 'https://c.com/' },
+        ]);
+        expect(plan.byElementSlot[linkKey('el-2', 'box')]).toEqual({
+            name: 'clickTag2',
+            url: 'https://b.com/',
+            target: '_blank',
+        });
+    });
+
+    it('keeps an explicitly requested variable', () => {
+        const plan = buildClickTagPlan([
+            source({ elementId: 'el-1', url: 'https://a.com/', clickTag: 'clickTag3' }),
+        ]);
+
+        expect(plan.declarations).toEqual([{ name: 'clickTag3', url: 'https://a.com/' }]);
+        expect(plan.byElementSlot[linkKey('el-1', 'box')].name).toBe('clickTag3');
+    });
+
+    it('gives two spots with the same destination the same variable', () => {
+        const plan = buildClickTagPlan([
+            source({ elementId: 'el-1', url: 'https://a.com/', clickTag: 'clickTag1' }),
+            source({ elementId: 'el-2', url: 'https://a.com/', clickTag: 'clickTag1' }),
+        ]);
+
+        expect(plan.declarations).toEqual([{ name: 'clickTag1', url: 'https://a.com/' }]);
+        expect(plan.byElementSlot[linkKey('el-2', 'box')].name).toBe('clickTag1');
+    });
+
+    it('re-assigns a variable instead of letting a second destination overwrite it', () => {
+        const plan = buildClickTagPlan([
+            source({ elementId: 'el-1', url: 'https://a.com/', clickTag: 'clickTag1' }),
+            source({ elementId: 'el-2', url: 'https://b.com/', clickTag: 'clickTag1' }),
+        ]);
+
+        expect(plan.declarations).toEqual([
+            { name: 'clickTag1', url: 'https://a.com/' },
+            { name: 'clickTag2', url: 'https://b.com/' },
+        ]);
+    });
+
+    it('exports a plain href for "none" and once every variable is taken', () => {
+        const plan = buildClickTagPlan([
+            source({ elementId: 'el-1', url: 'https://a.com/', clickTag: 'none' }),
+            source({ elementId: 'el-2', url: 'https://b.com/' }),
+            source({ elementId: 'el-3', url: 'https://c.com/' }),
+            source({ elementId: 'el-4', url: 'https://d.com/' }),
+            source({ elementId: 'el-5', url: 'https://e.com/' }),
+        ]);
+
+        expect(plan.byElementSlot[linkKey('el-1', 'box')].name).toBeUndefined();
+        expect(plan.byElementSlot[linkKey('el-5', 'box')]).toEqual({ url: 'https://e.com/', target: '_blank' });
+        expect(plan.declarations).toHaveLength(3);
+    });
+});
+
+describe('buildClickTagDeclarations', () => {
+    it('always declares all three variables, using "#" for the free ones', () => {
+        expect(buildClickTagDeclarations([{ name: 'clickTag2', url: 'https://b.com/' }])).toEqual([
+            'var clickTag1 = "#";',
+            'var clickTag2 = "https://b.com/";',
+            'var clickTag3 = "#";',
+        ]);
+    });
+});
+
+describe('buildLinkAttributes', () => {
+    it('routes click-tagged links through window.open(window.clickTagN, ...)', () => {
+        const attrs = buildLinkAttributes({ name: 'clickTag1', url: 'https://a.com/', target: '_blank' });
+
+        // Same shape as the hand-written reference banner.
+        expect(attrs).toBe(
+            'href="#" onclick="window.open(window.clickTag1, \'_blank\'); return false;" target="_blank"',
+        );
+    });
+
+    it('emits a real href for links without a click tag', () => {
+        const attrs = buildLinkAttributes({ url: 'https://a.com/?a=1&b=2', target: '_self' });
+
+        expect(attrs).toBe('href="https://a.com/?a=1&amp;b=2" target="_self"');
+    });
+
+    it('cannot be broken out of by a crafted URL', () => {
+        const attrs = buildLinkAttributes({ url: 'https://a.com/"><script>alert(1)</script>', target: '_blank' });
+
+        expect(attrs).not.toContain('<script>');
+        expect(attrs).toContain('&quot;&gt;&lt;script&gt;');
+    });
+});
+
+describe('buildClickHotspot', () => {
+    it('covers the element box exactly and shares its z-index', () => {
+        const html = buildClickHotspot({
+            id: 'link-el-hero',
+            x: 20,
+            y: 30,
+            width: 120,
+            height: 40,
+            z: 4,
+            link: { name: 'clickTag1', url: 'https://a.com/', target: '_blank' },
+        });
+
+        expect(html).toContain('<a id="link-el-hero" class="clicktag-area"');
+        expect(html).toContain('left: 20px; top: 30px; width: 120px; height: 40px; z-index: 4;');
+        expect(html).toContain('window.open(window.clickTag1');
+        expect(html.endsWith('></a>')).toBe(true);
     });
 });

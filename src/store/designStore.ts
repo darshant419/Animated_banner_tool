@@ -27,6 +27,27 @@ export interface ElementAnimation {
     loop?: boolean;
 }
 
+/**
+ * Click-tag variables declared in the exported banner (`var clickTag1 = "…";`).
+ * Ad platforms (Google Ads / DCM) inject their own destination into these
+ * globals, so the exported banner must route clicks through them.
+ */
+export type ClickTagName = 'clickTag1' | 'clickTag2' | 'clickTag3';
+
+/** Every click-tag variable the exporter declares, in order. */
+export const CLICK_TAG_NAMES: ClickTagName[] = ['clickTag1', 'clickTag2', 'clickTag3'];
+
+/** Where a click opens: a new tab (`_blank`, banner default) or the same window. */
+export type LinkTarget = '_blank' | '_self';
+
+/**
+ * How a link is wired in the exported banner:
+ * - `auto` (default): the exporter assigns the next free `clickTagN`,
+ * - `clickTagN`: this link owns that variable (falls back to `auto` if taken),
+ * - `none`: plain `href`, no click-tag variable is declared for it.
+ */
+export type LinkClickTag = ClickTagName | 'auto' | 'none';
+
 /** A preset animation block playing inside its own timeframe on the global timeline. */
 export interface ElementTimedAnimation {
     id: string;
@@ -169,6 +190,18 @@ export interface DesignElement {
     waveColor?: string;
     wavePoints?: number;
     waveLayers?: number;
+    /**
+     * Click tag / link — the element's box becomes the clickable area in the
+     * exported banner (a transparent hotspot is emitted over it). Leave
+     * `linkUrl` empty for a non-clickable element.
+     */
+    linkUrl?: string;
+    linkTarget?: LinkTarget;
+    linkClickTag?: LinkClickTag;
+    /** Click-tag binding for the ISI tray's "Prescribing Information" strip. */
+    isiHeaderClickTag?: LinkClickTag;
+    /** Click-tag binding for the ISI tray's logo image. */
+    isiLogoClickTag?: LinkClickTag;
 }
 
 export interface SelectedKeyframe {

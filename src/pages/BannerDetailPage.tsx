@@ -7,6 +7,7 @@ import {
     ExternalLink,
     Image as ImageIcon,
     Layers,
+    Link2,
     Loader2,
     PenSquare,
     RefreshCw,
@@ -26,6 +27,7 @@ import { saveBannerTemplate } from '../services/templateService';
 import { uploadProjectThumbnail } from '../services/storageService';
 import { subscribeToAssets, type FirebaseAsset } from '../services/assetService';
 import { buildBannerPackage, buildPreviewHtml, zipBannerPackage } from '../utils/bannerPackage';
+import { buildClickTagPlan, collectLinkSources, linkKey } from '../utils/bannerExport';
 import { navigate } from '../router/hashRouter';
 import { formatDateTime } from '../utils/format';
 
@@ -98,7 +100,7 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                 canvasBackgroundImage: target.canvasBackgroundImage,
                 totalDuration: target.totalDuration,
                 loop: target.loop,
-                elements: target.elements,
+                elements: target.artboards[0]?.elements ?? target.elements,
                 inlineRemoteImages: true,
             });
             setPreviewHtml(buildPreviewHtml(pkg));
@@ -125,7 +127,7 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                 canvasBackgroundImage: project.canvasBackgroundImage,
                 totalDuration: project.totalDuration,
                 loop: project.loop,
-                elements: project.elements,
+                elements: project.artboards[0]?.elements ?? project.elements,
             });
             const blob = await zipBannerPackage(pkg);
             const link = document.createElement('a');
@@ -219,6 +221,50 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
             setSavingTemplate(false);
         }
     };
+
+    const bannerClickTags = useMemo(() => {
+        if (!project) return [] as Array<{
+            boardId: string;
+            boardLabel: string;
+            elementId: string;
+            elementName: string;
+            slot: 'box' | 'isiHeader' | 'isiLogo';
+            url: string;
+            target: '_blank' | '_self';
+            name?: 'clickTag1' | 'clickTag2' | 'clickTag3';
+        }>;
+
+        // Legacy projects predate per-size `artboards`; fall back to the flat
+        // element list using the project's canvas size as its label.
+        const boards = project.artboards.length > 0
+            ? project.artboards
+            : [{
+                id: 'art-1',
+                label: `${project.canvasWidth}x${project.canvasHeight}`,
+                width: project.canvasWidth,
+                height: project.canvasHeight,
+                elements: project.elements,
+            }];
+
+        return boards.flatMap((board) => {
+            const sources = collectLinkSources(board.elements);
+            const plan = buildClickTagPlan(sources);
+            return sources.map((source) => {
+                const owner = board.elements.find((el) => el.id === source.elementId);
+                const assignment = plan.byElementSlot[linkKey(source.elementId, source.slot)];
+                return {
+                    boardId: board.id,
+                    boardLabel: board.label,
+                    elementId: source.elementId,
+                    elementName: owner?.name || owner?.type || source.elementId,
+                    slot: source.slot,
+                    url: source.url,
+                    target: source.target,
+                    name: assignment?.name,
+                };
+            });
+        });
+    }, [project]);
 
     const bannerImages = useMemo(() => {
         if (!project) return [] as Array<{ url: string; name: string; fromLibrary: boolean }>;
@@ -381,7 +427,7 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                                         key={previewKey}
                                         title={`${project.name} preview`}
                                         srcDoc={previewHtml}
-                                        sandbox="allow-scripts"
+                                        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
                                         scrolling="no"
                                         style={{
                                             width: project.canvasWidth,
@@ -448,6 +494,50 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                                     <li className="text-[12px] text-gray-500">{project.canvasWidth}×{project.canvasHeight} (single size)</li>
                                 )}
                             </ul>
+                        </div>
+
+                        {/* Click tags & links on every size */}
+                        <div className="bg-[#15151c] border border-[#2a2a35] rounded-xl p-5">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Link2 size={14} className="text-red-500" />
+                                    <h2 className="text-sm font-semibold text-gray-100">Click tags & links</h2>
+                                </div>
+                                <span className="text-[11px] text-gray-500">{bannerClickTags.length}</span>
+                            </div>
+
+                            {bannerClickTags.length === 0 ? (
+                                <p className="mt-3 text-[12px] text-gray-500">
+                                    No links yet — open the banner in the editor, select an element and set its link URL under “Click Tag / Link”.
+                                </p>
+                            ) : (
+                                <ul className="mt-3 space-y-2">
+                                    {bannerClickTags.map((clickTag) => (
+                                        <li
+                                            key={`${clickTag.boardId}:${clickTag.elementId}:${clickTag.slot}`}
+                                            className="px-3 py-2 bg-[#1a1a21] border border-[#232330] rounded-lg text-[12px]"
+                                        >
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                <Link2 size={11} className="text-emerald-400 shrink-0" />
+                                                <span className="text-gray-200 truncate">{clickTag.elementName}</span>
+                                                <span className="ml-auto text-[9px] uppercase tracking-wide text-gray-500 shrink-0">
+                                                    {clickTag.slot === 'box' ? 'element' : clickTag.slot === 'isiHeader' ? 'ISI header' : 'ISI logo'}
+                                                    {project.artboards.length > 0 ? ` · ${clickTag.boardLabel}` : ''}
+                                                </span>
+                                            </div>
+                                            <div className="mt-0.5 text-[10px] text-gray-400 truncate" title={clickTag.url}>
+                                                {clickTag.url}
+                                            </div>
+                                            <div className="mt-0.5 text-[10px]">
+                                                {clickTag.name
+                                                    ? <span className="text-emerald-400 font-mono">window.{clickTag.name}</span>
+                                                    : <span className="text-gray-500">direct href</span>}
+                                                <span className="text-gray-600"> · {clickTag.target === '_self' ? 'same window' : 'new tab'}</span>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
 
                         {/* Images belonging to this banner */}

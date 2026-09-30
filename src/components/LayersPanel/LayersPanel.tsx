@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Eye, EyeOff, Lock, Unlock, Type, Square, Circle,
   Image as ImageIcon, ScrollText, Shapes, Code2,
-  ArrowUp, ArrowDown, Copy, Trash2, Pencil,
+  ArrowUp, ArrowDown, Copy, Trash2, Pencil, Link2,
 } from 'lucide-react';
 import { useDesignStore, type DesignElement } from '../../store/designStore';
 
@@ -71,6 +71,19 @@ export const LayersPanel: React.FC = () => {
               } ${el.visible === false ? 'opacity-40' : ''}`}
           >
             <span className="text-gray-500 shrink-0">{typeIcon(el.type)}</span>
+
+            {(el.linkUrl || el.isiHeaderLink || el.isiLogoLink) && (
+              <span
+                className="text-emerald-400 shrink-0"
+                title={
+                  el.type === 'isiScroll'
+                    ? `ISI links: ${[el.isiHeaderLink, el.isiLogoLink].filter(Boolean).join(' · ')}`
+                    : `Click tag (${el.linkClickTag || 'auto'}): ${el.linkUrl}`
+                }
+              >
+                <Link2 size={12} />
+              </span>
+            )}
 
             <div className="flex-1 min-w-0">
               {renamingId === el.id ? (

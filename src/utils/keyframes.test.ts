@@ -233,6 +233,95 @@ describe('endBehavior', () => {
         // The exit preset owns the disappearance; no extra appended fade is added.
         expect(frames.filter((f) => f.time === 5)).toHaveLength(0);
     });
+
+    it('fades out over a short window at the end of the banner, not from the entrance on', () => {
+        const frames = getElementKeyframes(makeElement({ ...entering, endBehavior: 'hide' }), 10);
+
+        // The entrance finishes at 1s; the element then STAYS visible and only
+        // fades during the last second of the 10s banner.
+        const fadeStart = frames.find((f) => f.time === 9);
+        expect(fadeStart).toBeDefined();
+        expect(fadeStart!.opacity).toBe(100);
+        expect(frames[frames.length - 1].time).toBe(10);
+        expect(frames[frames.length - 1].opacity).toBe(0);
+    });
+
+    it('honors endBehavior "hide" on layers with manual keyframes', () => {
+        const frames = getElementKeyframes(
+            makeElement({
+                anim: {
+                    keyframes: [
+                        { id: 'k1', time: 0, easing: 'linear', opacity: 0 },
+                        { id: 'k2', time: 1, easing: 'linear', opacity: 100 },
+                    ],
+                },
+                endBehavior: 'hide',
+            }),
+            5,
+        );
+
+        // The authored frames survive and the element still leaves at the end.
+        expect(frames.some((f) => f.id === 'k1')).toBe(true);
+        expect(frames[frames.length - 1].time).toBe(5);
+        expect(frames[frames.length - 1].opacity).toBe(0);
+    });
+
+    it('appends an exit preset after manual keyframes', () => {
+        const frames = getElementKeyframes(
+            makeElement({
+                anim: {
+                    keyframes: [
+                        { id: 'k1', time: 0, easing: 'linear', opacity: 100 },
+                        { id: 'k2', time: 2, easing: 'linear', opacity: 100 },
+                    ],
+                },
+                exitAnimation: 'fade-out',
+            }),
+            6,
+        );
+
+        // The exit starts when the authored keyframes end (2s) and lasts 1s.
+        expect(frames[frames.length - 1].time).toBeCloseTo(3);
+        expect(frames[frames.length - 1].opacity).toBe(0);
+    });
+
+    it('keeps frames sorted when a looped timed block runs into the end-fade', () => {
+        const frames = getElementKeyframes(
+            makeElement({
+                endBehavior: 'hide',
+                animations: [{ id: 'b1', preset: 'fadeIn', start: 0, duration: 1, loop: true }],
+            }),
+            3,
+        );
+
+        const times = frames.map((f) => f.time);
+        expect(times).toEqual([...times].sort((a, b) => a - b));
+        // The block repeats until the banner ends, where it becomes the
+        // terminal (hidden) frame instead of colliding with the end-fade.
+        expect(times[times.length - 1]).toBe(3);
+        expect(frames[frames.length - 1].opacity).toBe(0);
+    });
+
+    it('shows the automatic end-fade as a Disappear segment on the timeline', () => {
+        const segments = getElementAnimationSegments(
+            makeElement({ ...entering, endBehavior: 'hide' }),
+            10,
+        );
+
+        const hide = segments.find((s) => s.id === 'hide');
+        expect(hide).toMatchObject({ start: 9, end: 10, label: 'Disappear' });
+        expect(segments.some((s) => s.id === 'exit')).toBe(false);
+    });
+
+    it('does not show an end-fade segment when an exit preset owns the disappearance', () => {
+        const segments = getElementAnimationSegments(
+            makeElement({ ...entering, endBehavior: 'hide', exitAnimation: 'fade-out' }),
+            10,
+        );
+
+        expect(segments.some((s) => s.id === 'exit')).toBe(true);
+        expect(segments.some((s) => s.id === 'hide')).toBe(false);
+    });
 });
 
 });

@@ -1,10 +1,10 @@
-import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, memo } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Stage, Layer, Rect, Circle, Line, Text, Transformer, Image as KonvaImage, Path,
 } from 'react-konva';
 import { useDesignStore, type Artboard, type DesignElement } from '../../store/designStore';
-import { LayoutGrid, Square } from 'lucide-react';
+import { LayoutGrid, Square, Link2 } from 'lucide-react';
 import Konva from 'konva';
 import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
@@ -12,6 +12,7 @@ import { ISIOverlay } from './ISIOverlay';
 import { buildMasterTimeline, registerMasterSeeker, unregisterMasterSeeker } from './AnimationHelpers';
 import { getElementBaseState } from '../../utils/keyframes';
 import { buildBannerPackage, zipBannerPackage } from '../../utils/bannerPackage';
+import { buildClickTagPlanForElements, linkKey } from '../../utils/bannerExport';
 
 const URLImage = React.forwardRef<Konva.Image, any>(function URLImage({ image, ...props }, ref) {
   const [img] = useImage(image.src);
@@ -221,6 +222,14 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   const [editingISI, setEditingISI] = useState<{ id: string; header: string; html: string } | null>(null);
 
   const elements = board.elements;
+
+  // Click-tag areas of this board, resolved with the exporter's own rules so the
+  // canvas shows exactly which regions of the banner are clickable.
+  const linkPlan = useMemo(() => buildClickTagPlanForElements(elements), [elements]);
+  const linkAreas = elements.flatMap((el) => {
+    const link = linkPlan.byElementSlot[linkKey(el.id, 'box')];
+    return link ? [{ el, link }] : [];
+  });
 
   const registerNode = useCallback((id: string, node: Konva.Node | null) => {
     if (node) nodeRefs.current.set(id, node);
@@ -501,6 +510,28 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
           {isActive && selectedId && <Transformer ref={trRef} keepRatio={true} />}
         </Layer>
       </Stage>
+
+      {/* Click-tag areas: an HTML overlay (outside the Konva stage, so it can
+          never leak into the PNG export) marking where the banner is clickable.
+          Boxes are drawn unrotated, i.e. the exported hotspot's own geometry. */}
+      {isActive && !isPlaying && linkAreas.map(({ el, link }) => (
+        <div
+          key={`link-area-${el.id}`}
+          className="absolute border border-dashed border-emerald-500/50 pointer-events-none"
+          style={{
+            left: el.x,
+            top: el.y,
+            width: el.width || 0,
+            height: el.height || 0,
+            zIndex: 120,
+          }}
+        >
+          <span className="absolute -top-[9px] left-0 inline-flex items-center gap-1 px-1 py-[3px] rounded bg-emerald-600 text-white text-[9px] font-medium leading-none whitespace-nowrap">
+            <Link2 size={9} />
+            {link.name || 'link'}
+          </span>
+        </div>
+      ))}
 
       {/* Rich HTML ISI content — the ISI tray lives on its OWN layer above the
           banner canvas, and its scroll timeline is fully independent of the

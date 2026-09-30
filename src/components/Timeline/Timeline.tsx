@@ -70,7 +70,7 @@ const SEGMENT_STYLES = {
 
 const getSegmentStyle = (segId: string) => {
   if (segId === 'enter') return SEGMENT_STYLES.enter;
-  if (segId === 'exit') return SEGMENT_STYLES.exit;
+  if (segId === 'exit' || segId === 'hide') return SEGMENT_STYLES.exit;
   if (segId === 'loop' || segId === 'main') return SEGMENT_STYLES.main;
   return SEGMENT_STYLES.loop;
 };
@@ -336,6 +336,9 @@ export const Timeline: React.FC = () => {
   const moveDragSegment = (e: React.PointerEvent) => {
     if (!dragSegmentRef.current) return;
     const { elementId, segmentId, type, startX, initialStart, initialDuration } = dragSegmentRef.current;
+    // The automatic end-fade ("Disappear") is derived from the banner length,
+    // not from a field the drag could rewrite, so it never re-times.
+    if (segmentId === 'hide') return;
     const deltaSeconds = (e.clientX - startX) / pps;
     if (type === 'move') {
       const newStart = Math.max(0, Math.round((initialStart + deltaSeconds) * 20) / 20);
@@ -845,7 +848,7 @@ export const Timeline: React.FC = () => {
 
               {elements.map((el, i) => {
                 const kfs = getElementKeyframes(el, totalDuration);
-                const segments = getElementAnimationSegments(el);
+                const segments = getElementAnimationSegments(el, totalDuration);
                 const isSelected = selectedId === el.id;
                 const isDragSource = rowDragOver?.id === el.id;
 
@@ -907,7 +910,9 @@ export const Timeline: React.FC = () => {
                         const segWidth = Math.max(12, (seg.end - seg.start) * pps);
                         const style = getSegmentStyle(seg.id);
                         const isEntrance = seg.id === 'enter';
-                        const isExit = seg.id === 'exit';
+                        // `hide` is the automatic end-fade of endBehavior:hide;
+                        // it reads/behaves like an exit on the timeline.
+                        const isExit = seg.id === 'exit' || seg.id === 'hide';
 
                         return (
                           <div

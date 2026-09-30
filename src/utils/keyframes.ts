@@ -219,40 +219,9 @@ export const presetToKeyframes = (
     }
 };
 
-/**
- * Returns the effective keyframes for an element:
- * entrance animation (optional) + explicit/preset main animation +
- * additional timed animation blocks + exit animation (optional).
- * Frames are sorted by time so preview, timeline and export stay in sync.
- * `totalDuration` bounds how far a `loop`ed timed block repeats.
- */
-export const getElementKeyframes = (el: DesignElement, totalDuration?: number): AnimationKeyframe[] => {
-    // If manual keyframes exist
-    if (el.anim && el.anim.keyframes.length > 0) {
-        if (el.enterAnimation && el.enterAnimation !== 'none') {
-            const enter = presetToKeyframes(el, el.enterAnimation, el.enterDelay || 0, undefined, el.enterEasing);
-            const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
-            const shifted = el.anim.keyframes.map((f) => ({ ...f, id: uid(), time: f.time + enterEnd }));
-            return [...enter, ...shifted].sort((a, b) => a.time - b.time);
-        }
-        return el.anim.keyframes;
-    }
-
-    const enterPreset = el.enterAnimation || el.animation || 'none';
-    const enter = enterPreset !== 'none'
-        ? presetToKeyframes(el, enterPreset, el.enterDelay ?? el.animationDelay ?? 0, undefined, el.enterEasing)
-        : [];
-    const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
-
-    // Only chain main if it's explicitly distinct from enterAnimation
-    const hasDistinctMain = el.enterAnimation && el.animation && el.animation !== 'none' && el.animation !== el.enterAnimation;
-    const main = hasDistinctMain ? presetToKeyframes(el, el.animation) : [];
-    const mainFrames = enterEnd > 0
-        ? main.map((f) => ({ ...f, id: uid(), time: f.time + enterEnd }))
-        : main;
-    const mainEnd = mainFrames.length > 0 ? Math.max(...mainFrames.map((f) => f.time)) : enterEnd;
-
-    const blocks = (el.animations || [])
+/** Expands the element's additional timed animation blocks into absolute times. */
+const buildTimedBlocks = (el: DesignElement, totalDuration?: number): AnimationKeyframe[] =>
+    (el.animations || [])
         .filter((b) => b.preset && b.preset !== 'none')
         .map((b) => {
             const pattern = presetToKeyframes(el, b.preset, 0, b.duration, b.ease).map((f) => ({
@@ -277,6 +246,53 @@ export const getElementKeyframes = (el: DesignElement, totalDuration?: number): 
         })
         .flat();
 
+/**
+ * Returns the effective keyframes for an element:
+ * entrance animation (optional) + explicit/preset main animation +
+ * additional timed animation blocks + exit animation (optional) +
+ * the automatic end-fade of `endBehavior: 'hide'` (optional).
+ * Frames are sorted by time so preview, timeline and export stay in sync.
+ * `totalDuration` bounds how far a `loop`ed timed block repeats and fixes
+ * where the automatic end-fade lands.
+ */
+export const getElementKeyframes = (el: DesignElement, totalDuration?: number): AnimationKeyframe[] => {
+    const blocks = buildTimedBlocks(el, totalDuration);
+    let frames: AnimationKeyframe[];
+    let mainEnd: number;
+
+    // Manual keyframes: still subject to the exit preset and `endBehavior`,
+    // otherwise choosing "Disappear" (or an exit animation) would do nothing
+    // for any layer that was keyframed directly on the timeline.
+    if (el.anim && el.anim.keyframes.length > 0) {
+        if (el.enterAnimation && el.enterAnimation !== 'none') {
+            const enter = presetToKeyframes(el, el.enterAnimation, el.enterDelay || 0, undefined, el.enterEasing);
+            const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
+            const shifted = el.anim.keyframes.map((f) => ({ ...f, id: uid(), time: f.time + enterEnd }));
+            frames = [...enter, ...shifted];
+        } else {
+            frames = [...el.anim.keyframes];
+        }
+        mainEnd = frames.length > 0 ? Math.max(...frames.map((f) => f.time)) : 0;
+    } else {
+        const enterPreset = el.enterAnimation || el.animation || 'none';
+        const enter = enterPreset !== 'none'
+            ? presetToKeyframes(el, enterPreset, el.enterDelay ?? el.animationDelay ?? 0, undefined, el.enterEasing)
+            : [];
+        const enterEnd = enter.length > 0 ? Math.max(...enter.map((f) => f.time)) : 0;
+
+        // Only chain main if it's explicitly distinct from enterAnimation
+        const hasDistinctMain = el.enterAnimation && el.animation && el.animation !== 'none' && el.animation !== el.enterAnimation;
+        const main = hasDistinctMain ? presetToKeyframes(el, el.animation) : [];
+        const mainFrames = enterEnd > 0
+            ? main.map((f) => ({ ...f, id: uid(), time: f.time + enterEnd }))
+            : main;
+        mainEnd = mainFrames.length > 0 ? Math.max(...mainFrames.map((f) => f.time)) : enterEnd;
+
+        frames = [...enter, ...mainFrames, ...blocks];
+    }
+
+    // Exit preset — scheduled after the element's own animation, however it was
+    // authored (preset or manual keyframes on the timeline).
     const exit = el.exitAnimation && el.exitAnimation !== 'none'
         ? presetToKeyframes(el, el.exitAnimation, 0, undefined, el.exitEasing).map((f) => ({
             ...f,
@@ -285,22 +301,18 @@ export const getElementKeyframes = (el: DesignElement, totalDuration?: number): 
         }))
         : [];
 
-    const frames = [...enter, ...mainFrames, ...blocks, ...exit].sort((a, b) => a.time - b.time);
+    let out = exit.length > 0 ? [...frames, ...exit] : frames;
 
     // `stay` (the default) needs no extra frames: the last keyframe already
     // leaves the element at its resting state, so it remains visible for the
-    // rest of the banner. `hide` appends a fade-out when the banner ends so
-    // the element disappears even though no exit preset was chosen.
+    // rest of the banner. `hide` appends a short fade-out that ends on the
+    // final frame of the banner, so the element disappears even though no exit
+    // preset was chosen.
     if (el.endBehavior === 'hide' && exit.length === 0 && totalDuration && totalDuration > mainEnd) {
-        const rest = getElementBaseState(el);
-        const from = frames.length > 0
-            ? { ...rest, ...lastDefined(frames[frames.length - 1], rest) }
-            : rest;
-        frames.push(kf(mainEnd, { ...from, easing: el.exitEasing || 'power1.in' }));
-        frames.push(kf(totalDuration, { ...from, opacity: 0, easing: el.exitEasing || 'power1.in' }));
+        out = appendEndHide(el, out, totalDuration);
     }
 
-    return frames;
+    return out.sort((a, b) => a.time - b.time);
 };
 
 /** Reads the visual channels of a keyframe, falling back to the element's base state. */
@@ -317,6 +329,40 @@ const lastDefined = (
     blur: frame.blur ?? base.blur,
 });;
 
+/** Length of the automatic end-fade used by `endBehavior: 'hide'`. */
+export const endHideFadeDuration = (el: DesignElement): number =>
+    el.animationDuration && el.animationDuration > 0 ? el.animationDuration : 1;
+
+/**
+ * Appends the automatic end-fade of `endBehavior: 'hide'`: the element holds
+ * its last state until `totalDuration - fadeDuration`, then fades to opacity 0
+ * exactly when the banner ends -- a short "disappears when the banner ends"
+ * window instead of a fade stretched across the whole banner tail.
+ */
+const appendEndHide = (el: DesignElement, frames: AnimationKeyframe[], totalDuration: number): AnimationKeyframe[] => {
+    const rest = getElementBaseState(el);
+    const last = frames.length > 0 ? frames[frames.length - 1] : undefined;
+    const lastTime = last ? last.time : 0;
+    const from = last ? { ...rest, ...lastDefined(last, rest) } : rest;
+    const ease = el.exitEasing || 'power1.in';
+    const out = [...frames];
+
+    const fadeStart = Math.max(lastTime, totalDuration - endHideFadeDuration(el));
+    if (fadeStart > lastTime && fadeStart < totalDuration) {
+        out.push(kf(fadeStart, { ...from, easing: ease }));
+    }
+
+    // A frame already sitting exactly at the banner end (a looped timed block,
+    // say) becomes the terminal frame instead of being duplicated: a second
+    // frame at the same time would render after the master timeline stops and
+    // the element would never reach opacity 0.
+    const terminal = out.findIndex((f) => Math.abs(f.time - totalDuration) < 1e-6);
+    if (terminal >= 0) out[terminal] = { ...out[terminal], opacity: 0, easing: ease };
+    else out.push(kf(totalDuration, { ...from, opacity: 0, easing: ease }));
+
+    return out;
+};
+
 /** A colored segment describing one animation block's timeframe on the timeline. */
 export interface ElementAnimationSegment {
     id: string;
@@ -326,8 +372,12 @@ export interface ElementAnimationSegment {
     color: string;
 }
 
-/** Computes the timeframe segments (entrance, main, timed blocks, exit) for an element. */
-export const getElementAnimationSegments = (el: DesignElement): ElementAnimationSegment[] => {
+/**
+ * Computes the timeframe segments (entrance, main, timed blocks, exit,
+ * automatic end-fade) for an element. `totalDuration` enables the end-fade
+ * segment of `endBehavior: 'hide'`.
+ */
+export const getElementAnimationSegments = (el: DesignElement, totalDuration?: number): ElementAnimationSegment[] => {
     const segments: ElementAnimationSegment[] = [];
 
     const hasExplicitEnter = !!el.enterAnimation && el.enterAnimation !== 'none';
@@ -378,6 +428,23 @@ export const getElementAnimationSegments = (el: DesignElement): ElementAnimation
         const s = (main.length > 0 ? enterEnd + mainEnd : enterEnd) + (el.exitDelay || 0);
         // TheBrief palette: pink/rose for exit segments
         segments.push({ id: 'exit', start: s, end: s + exitDur, label: animationLabel(el.exitAnimation), color: '#e4567d' });
+    }
+
+    // `endBehavior: 'hide'` without an exit preset: the automatic end-fade gets
+    // its own segment so the disappearance is visible on the timeline and
+    // matches the frames the preview and the export actually play.
+    if (
+        totalDuration &&
+        totalDuration > 0 &&
+        el.endBehavior === 'hide' &&
+        totalDuration > mainEnd &&
+        !segments.some((s) => s.id === 'exit')
+    ) {
+        const lastEnd = segments.length > 0 ? Math.max(...segments.map((s) => s.end)) : 0;
+        const start = Math.max(lastEnd, totalDuration - endHideFadeDuration(el));
+        if (start < totalDuration) {
+            segments.push({ id: 'hide', start, end: totalDuration, label: 'Disappear', color: '#e4567d' });
+        }
     }
     return segments;
 };

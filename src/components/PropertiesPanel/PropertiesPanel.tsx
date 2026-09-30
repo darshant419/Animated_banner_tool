@@ -1,12 +1,13 @@
 import React, { useRef } from 'react';
-import { useDesignStore } from '../../store/designStore';
+import { useDesignStore, CLICK_TAG_NAMES, type LinkClickTag } from '../../store/designStore';
 import { EASINGS } from '../../utils/keyframes';
 import { getAnimationGroupsForTab, animationLabel } from '../../utils/animations';
+import { buildClickTagPlanForElements, collectLinkSources, isSafeLinkUrl, linkKey, normalizeLinkUrl } from '../../utils/bannerExport';
 
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
     AlignLeft, AlignCenter, AlignRight,
-    Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles, Upload,
+    Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles, Upload, ExternalLink,
 } from 'lucide-react';
 import { uploadMediaAsset } from '../../services/storageService';
 
@@ -32,10 +33,36 @@ const withCurrentOption = (
     return [...groups, { label: 'Current', options: [{ value: current, label: animationLabel(current) }] }];
 };
 
+/**
+ * Click-tag binding picker, shared by the element link and the ISI sub-links.
+ * `auto` lets the exporter hand out the next free `clickTagN`.
+ */
+const ClickTagSelect: React.FC<{
+    value?: LinkClickTag;
+    onChange: (value: LinkClickTag | undefined) => void;
+}> = ({ value, onChange }) => (
+    <select
+        value={value || 'auto'}
+        onChange={(e) => {
+            const next = e.target.value as LinkClickTag;
+            onChange(next === 'auto' ? undefined : next);
+        }}
+        className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+        title="Which clickTag variable the exported banner uses for this link"
+    >
+        <option value="auto">Auto (next free)</option>
+        {CLICK_TAG_NAMES.map((name) => (
+            <option key={name} value={name}>{name}</option>
+        ))}
+        <option value="none">Direct URL (no click tag)</option>
+    </select>
+);
+
 export const PropertiesPanel: React.FC = () => {
     const {
         elements,
         selectedId,
+        selectElement,
         selectedKeyframe,
         updateElement,
         updateKeyframe,
@@ -62,6 +89,15 @@ export const PropertiesPanel: React.FC = () => {
     const [isiMarginExpanded, setIsiMarginExpanded] = React.useState(false);
 
     const selectedElement = elements.find(el => el.id === selectedId);
+
+    // Every link on this artboard resolved against clickTag1..3 — exactly the
+    // plan the exported banner uses, so the panel can show what will ship.
+    const linkPlan = React.useMemo(() => buildClickTagPlanForElements(elements), [elements]);
+    // Links that will actually ship, using the exporter's own rules.
+    const linkSources = React.useMemo(() => collectLinkSources(elements), [elements]);
+    const linkAssignment = (elementId: string, slot: 'box' | 'isiHeader' | 'isiLogo') =>
+        linkPlan.byElementSlot[linkKey(elementId, slot)];
+    const boxAssignment = selectedElement ? linkAssignment(selectedElement.id, 'box') : undefined;
 
     const selectedKf =
         selectedElement && selectedKeyframe && selectedKeyframe.elementId === selectedElement.id
@@ -244,6 +280,62 @@ export const PropertiesPanel: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Click tags & links on this size */}
+                    <div className="border-t border-[#232330] pt-6">
+                        <div className="flex items-center justify-between mb-3">
+                            <label className="text-xs font-medium text-gray-400 uppercase">Click Tags & Links</label>
+                            <span className="text-[10px] text-gray-500">
+                                {linkSources.length} clickable area{linkSources.length === 1 ? '' : 's'}
+                            </span>
+                        </div>
+
+                        {linkSources.length === 0 ? (
+                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                                Select an element, then set its <span className="text-gray-300">Link URL</span> under
+                                “Click Tag / Link” to make that exact area of the banner clickable.
+                            </p>
+                        ) : (
+                            <ul className="space-y-1.5">
+                                {linkSources.map((source) => {
+                                    const owner = elements.find((el) => el.id === source.elementId);
+                                    const assignment = linkPlan.byElementSlot[linkKey(source.elementId, source.slot)];
+                                    const slotLabel = source.slot === 'box'
+                                        ? 'element'
+                                        : source.slot === 'isiHeader' ? 'ISI header' : 'ISI logo';
+                                    return (
+                                        <li key={linkKey(source.elementId, source.slot)}>
+                                            <button
+                                                onClick={() => selectElement(source.elementId)}
+                                                className="w-full text-left px-2.5 py-2 rounded-lg bg-[#1a1a21] border border-[#232330] hover:border-red-500/50 transition"
+                                                title="Select this area on the canvas"
+                                            >
+                                                <span className="flex items-center gap-1.5">
+                                                    <LinkIcon size={11} className="text-emerald-400 shrink-0" />
+                                                    <span className="text-[11px] text-gray-100 truncate">
+                                                        {owner?.name || (owner ? owner.type : source.elementId)}
+                                                    </span>
+                                                    <span className="ml-auto text-[9px] uppercase tracking-wide text-gray-500 shrink-0">{slotLabel}</span>
+                                                </span>
+                                                <span className="block text-[10px] text-gray-400 truncate mt-0.5" title={source.url}>{source.url}</span>
+                                                <span className="block text-[10px] mt-0.5">
+                                                    {assignment?.name
+                                                        ? <span className="text-emerald-400 font-mono">window.{assignment.name}</span>
+                                                        : <span className="text-gray-500">direct href</span>}
+                                                    <span className="text-gray-600"> · {source.target === '_self' ? 'same window' : 'new tab'}</span>
+                                                </span>
+                                            </button>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+
+                        <p className="text-[10px] text-gray-500 mt-3 leading-relaxed">
+                            The export declares <span className="font-mono text-gray-400">var clickTag1…3</span> and puts a
+                            transparent anchor over every area above — the standard clickTag setup for ad platforms.
+                        </p>
+                    </div>
+
                     <div className="border-t border-[#232330] pt-6">
                         <label className="text-xs font-medium text-gray-400 uppercase block mb-3">Animation Timeline</label>
                         <div className="grid grid-cols-2 gap-3">
@@ -306,6 +398,85 @@ return (
                         <button onClick={() => reorderElement(selectedElement.id, 'top')} className="p-2 hover:bg-[#26262f] rounded" title="Bring to Front"><ChevronsUp size={16} /></button>
                         <button onClick={() => reorderElement(selectedElement.id, 'bottom')} className="p-2 hover:bg-[#26262f] rounded" title="Send to Back"><ChevronsDown size={16} /></button>
                     </div>
+                </div>
+
+                {/* Click Tag / Link — the element's box becomes the clickable area */}
+                <div className="space-y-3 border-t border-[#232330] pt-4">
+                    <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium text-gray-400 uppercase">Click Tag / Link</label>
+                        {boxAssignment?.name && (
+                            <span className="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                                window.{boxAssignment.name}
+                            </span>
+                        )}
+                    </div>
+
+                    {selectedElement.type === 'isiScroll' ? (
+                        <p className="text-[11px] text-gray-500 leading-relaxed">
+                            The ISI tray is not a click area (it would block its own scrolling). Use the
+                            <span className="text-gray-300"> header strip</span> and
+                            <span className="text-gray-300"> logo</span> links under “ISI Content” below, or any
+                            <span className="text-gray-300"> &lt;a href&gt;</span> inside the ISI HTML.
+                        </p>
+                    ) : (
+                        <>
+                            <div>
+                                <label className="text-[11px] text-gray-400 mb-1 block">Link URL</label>
+                                <div className="flex gap-1.5">
+                                    <input
+                                        type="text"
+                                        value={selectedElement.linkUrl || ''}
+                                        onChange={(e) => handleChange('linkUrl', e.target.value || undefined)}
+                                        placeholder="https://www.example.com/landing-page"
+                                        className="flex-1 border border-[#2a2a35] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            const url = normalizeLinkUrl(selectedElement.linkUrl);
+                                            if (isSafeLinkUrl(url)) window.open(url, '_blank', 'noopener,noreferrer');
+                                        }}
+                                        disabled={!isSafeLinkUrl(normalizeLinkUrl(selectedElement.linkUrl))}
+                                        className="px-2 py-1.5 rounded border border-[#2a2a35] text-gray-300 hover:text-white hover:border-red-500/60 transition disabled:opacity-30 disabled:hover:border-[#2a2a35]"
+                                        title="Test this link in a new tab"
+                                    >
+                                        <ExternalLink size={12} />
+                                    </button>
+                                </div>
+                                {selectedElement.linkUrl && !isSafeLinkUrl(normalizeLinkUrl(selectedElement.linkUrl)) && (
+                                    <p className="text-[10px] text-red-400 mt-1">
+                                        Only http(s), mailto, tel or relative links are exported.
+                                    </p>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[11px] text-gray-400 mb-1 block">Open in</label>
+                                    <select
+                                        value={selectedElement.linkTarget || '_blank'}
+                                        onChange={(e) => handleChange('linkTarget', e.target.value)}
+                                        className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                    >
+                                        <option value="_blank">New tab</option>
+                                        <option value="_self">Same window</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-[11px] text-gray-400 mb-1 block">Click tag</label>
+                                    <ClickTagSelect
+                                        value={selectedElement.linkClickTag}
+                                        onChange={(value) => handleChange('linkClickTag', value)}
+                                    />
+                                </div>
+                            </div>
+
+                            <p className="text-[10px] text-gray-500 leading-relaxed">
+                                {boxAssignment
+                                    ? <>Exports as a transparent hotspot over this element’s box{boxAssignment.name ? <> driven by <span className="text-gray-300 font-mono">window.{boxAssignment.name}</span></> : <> with a direct <span className="text-gray-300 font-mono">href</span></>}.</>
+                                    : 'Paste a URL to make this element’s exact position on the banner clickable.'}
+                            </p>
+                        </>
+                    )}
                 </div>
 
                 {/* Keyframe Editor */}
@@ -1037,6 +1208,18 @@ return (
                                         className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
                                     />
                                 </div>
+                                <div>
+                                    <label className="text-[11px] text-gray-400 mb-1 block">Click Tag</label>
+                                    <ClickTagSelect
+                                        value={selectedElement.isiHeaderClickTag}
+                                        onChange={(value) => handleChange('isiHeaderClickTag', value)}
+                                    />
+                                    {linkAssignment(selectedElement.id, 'isiHeader')?.name && (
+                                        <p className="text-[10px] text-emerald-400 mt-1 font-mono">
+                                            → window.{linkAssignment(selectedElement.id, 'isiHeader')!.name}
+                                        </p>
+                                    )}
+                                </div>
                                 <div className="grid grid-cols-3 gap-2">
                                     <div>
                                         <label className="text-[11px] text-gray-400 mb-1 block">Bar BG</label>
@@ -1085,6 +1268,18 @@ return (
                                             placeholder="https://logo-click-through.com"
                                             className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#15151c] text-gray-100 mb-2"
                                         />
+                                    </div>
+                                    <div className="mb-2">
+                                        <label className="text-[11px] text-gray-400 mb-1 block">Logo Click Tag</label>
+                                        <ClickTagSelect
+                                            value={selectedElement.isiLogoClickTag}
+                                            onChange={(value) => handleChange('isiLogoClickTag', value)}
+                                        />
+                                        {linkAssignment(selectedElement.id, 'isiLogo')?.name && (
+                                            <p className="text-[10px] text-emerald-400 mt-1 font-mono">
+                                                → window.{linkAssignment(selectedElement.id, 'isiLogo')!.name}
+                                            </p>
+                                        )}
                                     </div>
                                     <div>
                                         <input
