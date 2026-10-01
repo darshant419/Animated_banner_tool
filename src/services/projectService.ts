@@ -26,6 +26,14 @@ export interface FirebaseProject {
     canvasBackgroundImage?: string;
     artboards: Artboard[];
     elements: DesignElement[];
+    /**
+     * Banner-level click tag ("Use as click tag" + URL + target): the exported
+     * banner declares the standard `clickTag` variable and the whole banner
+     * becomes the click area. Ad platforms may override it at serve time.
+     */
+    useAsClickTag?: boolean;
+    clickTagUrl?: string;
+    clickTagTarget?: '_blank' | '_self';
     /** Image/video URLs used by the banner (kept so each banner page can show its assets). */
     imageUrls?: string[];
     createdAt: number;
@@ -124,6 +132,9 @@ export async function loadProject(id: string): Promise<FirebaseProject | null> {
             canvasBackgroundImage: data.canvasBackgroundImage,
             artboards: data.artboards || [],
             elements: data.elements || [],
+            useAsClickTag: data.useAsClickTag ?? false,
+            clickTagUrl: data.clickTagUrl || '',
+            clickTagTarget: data.clickTagTarget === '_self' ? '_self' : '_blank',
             imageUrls: data.imageUrls || [],
             createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),
             updatedAt: data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || Date.now()),

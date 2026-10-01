@@ -416,6 +416,81 @@ export const buildClickTagDeclarations = (declarations: ClickTagDeclaration[]): 
     });
 
 /**
+ * Banner-level click tag — the design-wide "Use as click tag" switch, its
+ * click-through URL and where a click opens. This is the standard `clickTag`
+ * global ad platforms look for and overwrite at serve time (same behaviour as
+ * The Brief's HTML5 export); element links keep their own `clickTag1..3`.
+ */
+export interface BannerClickTag {
+    /** When true the URL is declared as `clickTag` and the whole banner opens it. */
+    enabled: boolean;
+    url?: string;
+    target: LinkTarget;
+}
+
+/**
+ * The URL the exported banner declares as its click tag: the configured
+ * destination when the switch is on and it passes the safety check, otherwise
+ * empty (the declaration then keeps the conventional `"#"` placeholder).
+ */
+export const resolveBannerClickTagUrl = (banner?: BannerClickTag): string => {
+    if (!banner?.enabled) return '';
+    const url = normalizeLinkUrl(banner.url);
+    return isSafeLinkUrl(url) ? url : '';
+};
+
+/**
+ * `var clickTag = "…";` — emitted once in the `<head>` of the exported HTML.
+ * Ad platforms rewrite this declaration or set `window.clickTag` themselves,
+ * so the variable always exists, even when the design never configured one.
+ */
+export const buildBannerClickTagDeclaration = (banner?: BannerClickTag): string =>
+    'var clickTag = ' + jsStringLiteral(resolveBannerClickTagUrl(banner) || '#') + ';';
+
+/**
+ * JS timeline entry that makes the whole banner the click area of the
+ * banner-level click tag, mirroring The Brief's runtime:
+ *
+ * - the destination is resolved AT CLICK TIME from, in order: a `?clickTag=`
+ *   query parameter (what ad tags append), `window.clickTag` (what ad
+ *   platforms overwrite) and finally the URL declared in the HTML head — so a
+ *   served ad can retarget the creative without editing any exported file;
+ * - clicks on element hotspots / ISI links (any anchor) keep their own
+ *   destination and never open the banner click tag;
+ * - with no resolvable destination the banner stays non-clickable.
+ */
+export const buildBannerClickTagEvent = (banner?: BannerClickTag): string =>
+    '      { time: 0, action: () => {\n' +
+    '        var el = document.getElementById("banner");\n' +
+    '        if (!el) return;\n' +
+    '        var defaultUrl = ' + jsStringLiteral(resolveBannerClickTagUrl(banner)) + ';\n' +
+    '        var target = ' + jsStringLiteral(banner?.target === '_self' ? '_self' : '_blank') + ';\n' +
+    '        var readParam = function (name) {\n' +
+    '          var query = window.location && window.location.search ? window.location.search.substring(1) : "";\n' +
+    '          var parts = query.split(name + "=");\n' +
+    '          if (!parts[1]) return "";\n' +
+    '          var value = parts[1].replace(/&.+$/, "");\n' +
+    '          try { value = decodeURIComponent(value); } catch (err) { return ""; }\n' +
+    '          return /^(https?:\\/\\/|mailto:|\\/)/i.test(value) ? value : "";\n' +
+    '        };\n' +
+    '        var resolve = function () {\n' +
+    '          var param = readParam("clickTag") || readParam("clickTAG");\n' +
+    '          if (param) return param;\n' +
+    '          if (typeof window.clickTag === "string" && window.clickTag && window.clickTag !== "#") return window.clickTag;\n' +
+    '          return defaultUrl;\n' +
+    '        };\n' +
+    '        if (resolve()) el.style.cursor = "pointer";\n' +
+    '        window.getClickTagValue = function (name) { return readParam(name || "clickTag"); };\n' +
+    '        el.addEventListener("click", function (event) {\n' +
+    '          var node = event.target;\n' +
+    '          if (node && typeof node.closest === "function" && node.closest("a")) return;\n' +
+    '          var url = resolve();\n' +
+    '          if (!url) return;\n' +
+    '          window.open(url, target);\n' +
+    '        });\n' +
+    '      } },';
+
+/**
  * `href` / `onclick` / `target` attributes for one exported link. Click-tagged
  * links go through `window.open(window.clickTagN, …)` exactly like the
  * hand-written reference banners, which is what ad platforms look for.

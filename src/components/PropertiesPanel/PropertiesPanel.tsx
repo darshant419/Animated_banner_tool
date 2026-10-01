@@ -82,6 +82,10 @@ export const PropertiesPanel: React.FC = () => {
         totalDuration,
         loop,
         setLoop,
+        useAsClickTag,
+        clickTagUrl,
+        clickTagTarget,
+        setClickTag,
     } = useDesignStore();
 
         const isiTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -95,6 +99,9 @@ export const PropertiesPanel: React.FC = () => {
     const linkPlan = React.useMemo(() => buildClickTagPlanForElements(elements), [elements]);
     // Links that will actually ship, using the exporter's own rules.
     const linkSources = React.useMemo(() => collectLinkSources(elements), [elements]);
+    // Banner-level click tag, resolved exactly like the exporter resolves it.
+    const bannerClickTagActive = useAsClickTag && isSafeLinkUrl(normalizeLinkUrl(clickTagUrl));
+    const bannerClickTagUrl = bannerClickTagActive ? normalizeLinkUrl(clickTagUrl) : '';
     const linkAssignment = (elementId: string, slot: 'box' | 'isiHeader' | 'isiLogo') =>
         linkPlan.byElementSlot[linkKey(elementId, slot)];
     const boxAssignment = selectedElement ? linkAssignment(selectedElement.id, 'box') : undefined;
@@ -280,22 +287,78 @@ export const PropertiesPanel: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* Banner-level click tag — The Brief-style switch + URL + target */}
+                    <div className="border-t border-[#232330] pt-6">
+                        <div className="flex items-center justify-between mb-3">
+                            <label className="text-xs font-medium text-gray-400 uppercase">Banner Click Tag</label>
+                            <label className="flex items-center gap-1.5 text-[11px] text-gray-300 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={useAsClickTag}
+                                    onChange={(e) => setClickTag({ useAsClickTag: e.target.checked })}
+                                    className="rounded border-[#33333f] text-red-500 focus:ring-red-500"
+                                />
+                                Use as click tag
+                            </label>
+                        </div>
+                        <label className="text-xs text-gray-400 mb-1 block">Click-through URL</label>
+                        <input
+                            type="text"
+                            value={clickTagUrl || ''}
+                            onChange={(e) => setClickTag({ clickTagUrl: e.target.value })}
+                            placeholder="https://www.example.com/landing"
+                            disabled={!useAsClickTag}
+                            className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100 placeholder:text-gray-600 disabled:opacity-40 mb-2"
+                        />
+                        <label className="text-xs text-gray-400 mb-1 block">Open URL in</label>
+                        <select
+                            value={clickTagTarget}
+                            onChange={(e) => setClickTag({ clickTagTarget: e.target.value === '_self' ? '_self' : '_blank' })}
+                            disabled={!useAsClickTag}
+                            className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100 disabled:opacity-40"
+                        >
+                            <option value="_blank">New tab</option>
+                            <option value="_self">Same window</option>
+                        </select>
+                        <p className="text-[10px] text-gray-500 leading-relaxed mt-2">
+                            The whole banner becomes clickable and the export declares{' '}
+                            <span className="font-mono text-gray-400">window.clickTag</span>. Ad platforms can override it
+                            at serve time (<span className="font-mono text-gray-400">?clickTag=…</span>); element links keep
+                            their own click tags.
+                        </p>
+                    </div>
+
                     {/* Click tags & links on this size */}
                     <div className="border-t border-[#232330] pt-6">
                         <div className="flex items-center justify-between mb-3">
                             <label className="text-xs font-medium text-gray-400 uppercase">Click Tags & Links</label>
                             <span className="text-[10px] text-gray-500">
-                                {linkSources.length} clickable area{linkSources.length === 1 ? '' : 's'}
+                                {linkSources.length + (bannerClickTagActive ? 1 : 0)} clickable area{linkSources.length + (bannerClickTagActive ? 1 : 0) === 1 ? '' : 's'}
                             </span>
                         </div>
 
-                        {linkSources.length === 0 ? (
+                        {linkSources.length === 0 && !bannerClickTagActive ? (
                             <p className="text-[11px] text-gray-500 leading-relaxed">
                                 Select an element, then set its <span className="text-gray-300">Link URL</span> under
                                 “Click Tag / Link” to make that exact area of the banner clickable.
                             </p>
                         ) : (
                             <ul className="space-y-1.5">
+                                {bannerClickTagActive && (
+                                    <li>
+                                        <div className="w-full px-2.5 py-2 rounded-lg bg-[#1a1a21] border border-[#232330]">
+                                            <span className="flex items-center gap-1.5">
+                                                <LinkIcon size={11} className="text-emerald-400 shrink-0" />
+                                                <span className="text-[11px] text-gray-100 truncate">Whole banner</span>
+                                                <span className="ml-auto text-[9px] uppercase tracking-wide text-gray-500 shrink-0">banner</span>
+                                            </span>
+                                            <span className="block text-[10px] text-gray-400 truncate mt-0.5" title={bannerClickTagUrl}>{bannerClickTagUrl}</span>
+                                            <span className="block text-[9px] text-gray-500 mt-0.5 font-mono">
+                                                window.clickTag · {clickTagTarget === '_self' ? 'same window' : 'new tab'}
+                                            </span>
+                                        </div>
+                                    </li>
+                                )}
                                 {linkSources.map((source) => {
                                     const owner = elements.find((el) => el.id === source.elementId);
                                     const assignment = linkPlan.byElementSlot[linkKey(source.elementId, source.slot)];

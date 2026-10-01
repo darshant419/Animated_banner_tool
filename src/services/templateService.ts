@@ -34,6 +34,13 @@ export interface BannerTemplateDoc {
     canvasBackgroundImage?: string;
     artboards: Artboard[];
     elements: DesignElement[];
+    /**
+     * Banner-level click tag ("Use as click tag" + URL + target), carried with
+     * the template so a reused design exports the same `clickTag`.
+     */
+    useAsClickTag?: boolean;
+    clickTagUrl?: string;
+    clickTagTarget?: '_blank' | '_self';
     /** Images/videos used by the template — kept in sync so a shared copy still works. */
     imageUrls?: string[];
     /** Project the template was captured from, when applicable. */
@@ -141,6 +148,9 @@ export async function loadBannerTemplate(id: string): Promise<BannerTemplateDoc 
             canvasBackgroundImage: data.canvasBackgroundImage,
             artboards: data.artboards || [],
             elements: data.elements || [],
+            useAsClickTag: data.useAsClickTag ?? false,
+            clickTagUrl: data.clickTagUrl || '',
+            clickTagTarget: data.clickTagTarget === '_self' ? '_self' : '_blank',
             imageUrls: data.imageUrls || [],
             sourceProjectId: data.sourceProjectId,
             createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),

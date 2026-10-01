@@ -218,6 +218,9 @@ interface HistoryState {
     loop: boolean;
     canvasBackground: string;
     canvasBackgroundImage?: string;
+    useAsClickTag: boolean;
+    clickTagUrl?: string;
+    clickTagTarget: LinkTarget;
     artboards: Artboard[];
     activeArtboardId: string;
 }
@@ -237,6 +240,15 @@ interface DesignState {
     loop: boolean;
     canvasBackground: string;
     canvasBackgroundImage?: string;
+    /**
+     * Banner-level click tag ("Use as click tag" + URL + target): the exported
+     * banner declares the standard `clickTag` variable with this URL and the
+     * whole banner becomes the click area. Ad platforms may override the value
+     * at serve time (`window.clickTag` / `?clickTag=`).
+     */
+    useAsClickTag: boolean;
+    clickTagUrl?: string;
+    clickTagTarget: LinkTarget;
     artboards: Artboard[];
     activeArtboardId: string;
     /** Show every artboard side by side in the canvas (edit multiple sizes without switching). */
@@ -282,6 +294,12 @@ interface DesignState {
     setSize: (width: number, height: number) => void;
     setCanvasBackground: (color: string) => void;
     setCanvasBackgroundImage: (src: string | undefined) => void;
+    /** Updates the banner-level click tag (switch / URL / open-in target). */
+    setClickTag: (patch: {
+        useAsClickTag?: boolean;
+        clickTagUrl?: string;
+        clickTagTarget?: LinkTarget;
+    }) => void;
     // Project Metadata
     projectId: string | null;
     projectName: string;
@@ -305,6 +323,9 @@ interface DesignState {
         loop: boolean;
         canvasBackground: string;
         canvasBackgroundImage?: string;
+        useAsClickTag?: boolean;
+        clickTagUrl?: string;
+        clickTagTarget?: LinkTarget;
         artboards?: Artboard[];
         elements?: DesignElement[];
     }) => void;
@@ -317,6 +338,9 @@ interface DesignState {
         loop: boolean;
         canvasBackground: string;
         canvasBackgroundImage?: string;
+        useAsClickTag?: boolean;
+        clickTagUrl?: string;
+        clickTagTarget?: LinkTarget;
         artboards?: Artboard[];
         elements?: DesignElement[];
     }) => void;
@@ -362,6 +386,9 @@ const snapshot = (state: DesignState): HistoryState => ({
     loop: state.loop,
     canvasBackground: state.canvasBackground,
     canvasBackgroundImage: state.canvasBackgroundImage,
+    useAsClickTag: state.useAsClickTag,
+    clickTagUrl: state.clickTagUrl,
+    clickTagTarget: state.clickTagTarget,
     artboards: state.artboards,
     activeArtboardId: state.activeArtboardId,
 });
@@ -446,6 +473,9 @@ export const useDesignStore = create<DesignState>((set) => ({
     loop: true,
     canvasBackground: '#ffffff',
     canvasBackgroundImage: undefined,
+    useAsClickTag: false,
+    clickTagUrl: '',
+    clickTagTarget: '_blank',
     artboards: [defaultArtboard()],
     activeArtboardId: 'art-1',
     multiArtboardView: false,
@@ -477,6 +507,9 @@ export const useDesignStore = create<DesignState>((set) => ({
         loop: true,
         canvasBackground: '#ffffff',
         canvasBackgroundImage: undefined,
+        useAsClickTag: false,
+        clickTagUrl: '',
+        clickTagTarget: '_blank',
         artboards: [defaultArtboard()],
         activeArtboardId: 'art-1',
         multiArtboardView: false,
@@ -861,6 +894,8 @@ export const useDesignStore = create<DesignState>((set) => ({
     setCanvasBackgroundImage: (src) =>
         set((state) => ({ ...saveHistory(state), canvasBackgroundImage: src })),
 
+    setClickTag: (patch) => set((state) => ({ ...saveHistory(state), ...patch })),
+
     loadTemplate: (elements, width, height, totalDuration = 10) =>
         set(() => {
             const clean = elements.map((el) => ({ ...el, visible: el.visible !== false }));
@@ -876,6 +911,9 @@ export const useDesignStore = create<DesignState>((set) => ({
                 loop: true,
                 canvasBackground: '#ffffff',
                 canvasBackgroundImage: undefined,
+                useAsClickTag: false,
+                clickTagUrl: '',
+                clickTagTarget: '_blank',
                 artboards: [{ id: 'art-1', label: `${width}x${height}`, width, height, elements: clean }],
                 activeArtboardId: 'art-1',
                 past: [],
@@ -904,6 +942,9 @@ export const useDesignStore = create<DesignState>((set) => ({
                 loop: template.loop ?? true,
                 canvasBackground: template.canvasBackground || '#ffffff',
                 canvasBackgroundImage: template.canvasBackgroundImage,
+                useAsClickTag: template.useAsClickTag ?? false,
+                clickTagUrl: template.clickTagUrl || '',
+                clickTagTarget: template.clickTagTarget === '_self' ? '_self' : '_blank',
                 artboards,
                 activeArtboardId: artboards[0]?.id || 'art-1',
                 multiArtboardView: false,
@@ -934,6 +975,9 @@ export const useDesignStore = create<DesignState>((set) => ({
                 loop: project.loop ?? true,
                 canvasBackground: project.canvasBackground || '#ffffff',
                 canvasBackgroundImage: project.canvasBackgroundImage,
+                useAsClickTag: project.useAsClickTag ?? false,
+                clickTagUrl: project.clickTagUrl || '',
+                clickTagTarget: project.clickTagTarget === '_self' ? '_self' : '_blank',
                 artboards,
                 activeArtboardId: artboards[0]?.id || 'art-1',
                 multiArtboardView: false,
@@ -957,6 +1001,9 @@ export const useDesignStore = create<DesignState>((set) => ({
             loop: previous.loop,
             canvasBackground: previous.canvasBackground,
             canvasBackgroundImage: previous.canvasBackgroundImage,
+            useAsClickTag: previous.useAsClickTag,
+            clickTagUrl: previous.clickTagUrl,
+            clickTagTarget: previous.clickTagTarget,
             artboards: previous.artboards,
             activeArtboardId: previous.activeArtboardId,
             selectedId: null,
@@ -978,6 +1025,9 @@ export const useDesignStore = create<DesignState>((set) => ({
             loop: next.loop,
             canvasBackground: next.canvasBackground,
             canvasBackgroundImage: next.canvasBackgroundImage,
+            useAsClickTag: next.useAsClickTag,
+            clickTagUrl: next.clickTagUrl,
+            clickTagTarget: next.clickTagTarget,
             artboards: next.artboards,
             activeArtboardId: next.activeArtboardId,
             selectedId: null,

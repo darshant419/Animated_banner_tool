@@ -3,6 +3,8 @@ import type { DesignElement } from '../store/designStore';
 import { getElementBaseState, getElementKeyframes } from './keyframes';
 import {
     buildAnimationStartEvent,
+    buildBannerClickTagDeclaration,
+    buildBannerClickTagEvent,
     buildClickHotspot,
     buildClickTagDeclarations,
     buildClickTagPlan,
@@ -13,6 +15,7 @@ import {
     buildVideoAutoplayEvent,
     collectLinkSources,
     linkKey,
+    type BannerClickTag,
 } from './bannerExport';
 
 /**
@@ -49,6 +52,14 @@ export interface BuildBannerPackageOptions {
     totalDuration: number;
     loop: boolean;
     elements: DesignElement[];
+    /**
+     * Banner-level click tag ("Use as click tag" + URL + target): declares the
+     * standard `clickTag` variable in the exported HTML and makes the whole
+     * banner clickable, while element hotspots keep their own destinations.
+     */
+    useAsClickTag?: boolean;
+    clickTagUrl?: string;
+    clickTagTarget?: '_blank' | '_self';
     /**
      * When true, remote images are downloaded and converted to data URLs so the
      * package can be previewed from an iframe `srcDoc` (no relative paths).
@@ -109,6 +120,9 @@ export async function buildBannerPackage({
     canvasBackgroundImage,
     totalDuration,
     elements,
+    useAsClickTag = false,
+    clickTagUrl,
+    clickTagTarget,
     inlineRemoteImages = false,
 }: BuildBannerPackageOptions): Promise<BannerPackage> {
     const cssLines: string[] = [
@@ -125,6 +139,15 @@ export async function buildBannerPackage({
     // the ISI strip / logo go through the same variables.
     const linkPlan = buildClickTagPlan(collectLinkSources(elements));
 
+    // Design-wide click tag: declared as the standard `clickTag` global and
+    // wired to the whole banner (element hotspots still win inside their box).
+    const bannerClickTag: BannerClickTag = {
+        enabled: useAsClickTag,
+        url: clickTagUrl,
+        target: clickTagTarget === '_self' ? '_self' : '_blank',
+    };
+    timelineEvents.push(buildBannerClickTagEvent(bannerClickTag));
+
     const htmlParts: string[] = [
         '<!DOCTYPE html>',
         '<html class="no-js" lang="en">',
@@ -138,6 +161,7 @@ export async function buildBannerPackage({
         '  <link rel="stylesheet" href="css/styles.css" />',
         '  <meta name="ad.size" content="width=' + canvasWidth + ',height=' + canvasHeight + '" />',
         '  <script type="text/javascript">',
+        '    ' + buildBannerClickTagDeclaration(bannerClickTag),
         ...buildClickTagDeclarations(linkPlan.declarations).map((line) => '    ' + line),
         '  </script>',
         '  <script src="js/main.js"></script>',

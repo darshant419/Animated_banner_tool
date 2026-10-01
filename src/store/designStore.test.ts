@@ -429,4 +429,72 @@ describe('designStore', () => {
             expect(state.activeArtboardId).toBe('art-a');
         });
     });
+    describe('banner click tag', () => {
+        it('updates the switch, URL and target together', () => {
+            const store = useDesignStore.getState();
+            store.setClickTag({ useAsClickTag: true, clickTagUrl: 'https://www.example.com/landing', clickTagTarget: '_self' });
+
+            const state = useDesignStore.getState();
+            expect(state.useAsClickTag).toBe(true);
+            expect(state.clickTagUrl).toBe('https://www.example.com/landing');
+            expect(state.clickTagTarget).toBe('_self');
+        });
+
+        it('restores the previous click tag on undo', () => {
+            const store = useDesignStore.getState();
+            store.setClickTag({ useAsClickTag: true, clickTagUrl: 'https://a.com/' });
+            store.setClickTag({ clickTagUrl: 'https://b.com/' });
+
+            useDesignStore.getState().undo();
+            const state = useDesignStore.getState();
+            expect(state.useAsClickTag).toBe(true);
+            expect(state.clickTagUrl).toBe('https://a.com/');
+        });
+
+        it('loads a project click tag and defaults legacy projects to off', () => {
+            const store = useDesignStore.getState();
+            store.loadProjectState({
+                id: 'proj_1',
+                name: 'Banner',
+                canvasWidth: 300,
+                canvasHeight: 250,
+                totalDuration: 10,
+                loop: true,
+                canvasBackground: '#ffffff',
+                useAsClickTag: true,
+                clickTagUrl: 'https://pi.com/',
+                clickTagTarget: '_self',
+            });
+            let state = useDesignStore.getState();
+            expect(state.useAsClickTag).toBe(true);
+            expect(state.clickTagUrl).toBe('https://pi.com/');
+            expect(state.clickTagTarget).toBe('_self');
+
+            // Legacy saves predate the click tag — they must load with defaults.
+            useDesignStore.getState().loadProjectState({
+                id: 'proj_legacy',
+                name: 'Legacy banner',
+                canvasWidth: 300,
+                canvasHeight: 250,
+                totalDuration: 10,
+                loop: true,
+                canvasBackground: '#ffffff',
+            });
+            state = useDesignStore.getState();
+            expect(state.useAsClickTag).toBe(false);
+            expect(state.clickTagUrl).toBe('');
+            expect(state.clickTagTarget).toBe('_blank');
+        });
+
+        it('resets with the rest of the design', () => {
+            useDesignStore.getState().setClickTag({ useAsClickTag: true, clickTagUrl: 'https://a.com/' });
+
+            useDesignStore.getState().reset();
+            const state = useDesignStore.getState();
+            expect(state.useAsClickTag).toBe(false);
+            expect(state.clickTagUrl).toBe('');
+            expect(state.clickTagTarget).toBe('_blank');
+        });
+    });
+
 });

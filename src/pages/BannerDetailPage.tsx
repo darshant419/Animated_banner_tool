@@ -27,7 +27,7 @@ import { saveBannerTemplate } from '../services/templateService';
 import { uploadProjectThumbnail } from '../services/storageService';
 import { subscribeToAssets, type FirebaseAsset } from '../services/assetService';
 import { buildBannerPackage, buildPreviewHtml, zipBannerPackage } from '../utils/bannerPackage';
-import { buildClickTagPlan, collectLinkSources, linkKey } from '../utils/bannerExport';
+import { buildClickTagPlan, collectLinkSources, isSafeLinkUrl, linkKey, normalizeLinkUrl } from '../utils/bannerExport';
 import { navigate } from '../router/hashRouter';
 import { formatDateTime } from '../utils/format';
 
@@ -101,6 +101,9 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                 totalDuration: target.totalDuration,
                 loop: target.loop,
                 elements: target.artboards[0]?.elements ?? target.elements,
+                useAsClickTag: target.useAsClickTag,
+                clickTagUrl: target.clickTagUrl,
+                clickTagTarget: target.clickTagTarget,
                 inlineRemoteImages: true,
             });
             setPreviewHtml(buildPreviewHtml(pkg));
@@ -128,6 +131,9 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                 totalDuration: project.totalDuration,
                 loop: project.loop,
                 elements: project.artboards[0]?.elements ?? project.elements,
+                useAsClickTag: project.useAsClickTag,
+                clickTagUrl: project.clickTagUrl,
+                clickTagTarget: project.clickTagTarget,
             });
             const blob = await zipBannerPackage(pkg);
             const link = document.createElement('a');
@@ -210,6 +216,9 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                 artboards: project.artboards,
                 elements: project.elements,
                 imageUrls: project.imageUrls,
+                useAsClickTag: project.useAsClickTag,
+                clickTagUrl: project.clickTagUrl,
+                clickTagTarget: project.clickTagTarget,
                 sourceProjectId: project.id,
             });
 
@@ -231,8 +240,23 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
             slot: 'box' | 'isiHeader' | 'isiLogo';
             url: string;
             target: '_blank' | '_self';
-            name?: 'clickTag1' | 'clickTag2' | 'clickTag3';
+            name?: 'clickTag' | 'clickTag1' | 'clickTag2' | 'clickTag3';
         }>;
+
+        // The banner-level click tag ships once for every size, listed first.
+        const bannerUrl = normalizeLinkUrl(project.clickTagUrl);
+        const bannerRow = project.useAsClickTag && isSafeLinkUrl(bannerUrl)
+            ? [{
+                boardId: 'banner',
+                boardLabel: 'all sizes',
+                elementId: 'banner',
+                elementName: 'Whole banner',
+                slot: 'box' as const,
+                url: bannerUrl,
+                target: (project.clickTagTarget === '_self' ? '_self' : '_blank') as '_blank' | '_self',
+                name: 'clickTag' as const,
+            }]
+            : [];
 
         // Legacy projects predate per-size `artboards`; fall back to the flat
         // element list using the project's canvas size as its label.
@@ -246,24 +270,27 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                 elements: project.elements,
             }];
 
-        return boards.flatMap((board) => {
-            const sources = collectLinkSources(board.elements);
-            const plan = buildClickTagPlan(sources);
-            return sources.map((source) => {
-                const owner = board.elements.find((el) => el.id === source.elementId);
-                const assignment = plan.byElementSlot[linkKey(source.elementId, source.slot)];
-                return {
-                    boardId: board.id,
-                    boardLabel: board.label,
-                    elementId: source.elementId,
-                    elementName: owner?.name || owner?.type || source.elementId,
-                    slot: source.slot,
-                    url: source.url,
-                    target: source.target,
-                    name: assignment?.name,
-                };
-            });
-        });
+        return [
+            ...bannerRow,
+            ...boards.flatMap((board) => {
+                const sources = collectLinkSources(board.elements);
+                const plan = buildClickTagPlan(sources);
+                return sources.map((source) => {
+                    const owner = board.elements.find((el) => el.id === source.elementId);
+                    const assignment = plan.byElementSlot[linkKey(source.elementId, source.slot)];
+                    return {
+                        boardId: board.id,
+                        boardLabel: board.label,
+                        elementId: source.elementId,
+                        elementName: owner?.name || owner?.type || source.elementId,
+                        slot: source.slot,
+                        url: source.url,
+                        target: source.target,
+                        name: assignment?.name,
+                    };
+                });
+            }),
+        ];
     }, [project]);
 
     const bannerImages = useMemo(() => {
@@ -521,8 +548,8 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                                                 <Link2 size={11} className="text-emerald-400 shrink-0" />
                                                 <span className="text-gray-200 truncate">{clickTag.elementName}</span>
                                                 <span className="ml-auto text-[9px] uppercase tracking-wide text-gray-500 shrink-0">
-                                                    {clickTag.slot === 'box' ? 'element' : clickTag.slot === 'isiHeader' ? 'ISI header' : 'ISI logo'}
-                                                    {project.artboards.length > 0 ? ` · ${clickTag.boardLabel}` : ''}
+                                                    {clickTag.elementId === 'banner' ? 'banner' : clickTag.slot === 'box' ? 'element' : clickTag.slot === 'isiHeader' ? 'ISI header' : 'ISI logo'}
+                                                    {project.artboards.length > 0 && clickTag.elementId !== 'banner' ? ` · ${clickTag.boardLabel}` : ''}
                                                 </span>
                                             </div>
                                             <div className="mt-0.5 text-[10px] text-gray-400 truncate" title={clickTag.url}>

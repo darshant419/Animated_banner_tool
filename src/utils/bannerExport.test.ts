@@ -6,6 +6,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
     buildAnimationStartEvent,
+    buildBannerClickTagDeclaration,
+    buildBannerClickTagEvent,
     buildClickHotspot,
     buildClickTagDeclarations,
     buildClickTagPlan,
@@ -21,11 +23,12 @@ import {
     jsStringLiteral,
     linkKey,
     normalizeLinkUrl,
+    resolveBannerClickTagUrl,
 } from './bannerExport';
 import { getElementBaseState, getElementKeyframes } from './keyframes';
 import type { ElementBaseState } from './keyframes';
 import type { AnimationKeyframe, DesignElement } from '../store/designStore';
-import type { LinkSource } from './bannerExport';
+import type { BannerClickTag, LinkSource } from './bannerExport';
 
 /** Compiles a snippet the same way the browser parses `js/main.js`. */
 const compile = (code: string) => new Function(code);
@@ -714,6 +717,136 @@ describe('buildClickTagDeclarations', () => {
             'var clickTag2 = "https://b.com/";',
             'var clickTag3 = "#";',
         ]);
+    });
+});
+
+describe('banner click tag (design-wide clickTag)', () => {
+    const banner = (overrides: Partial<BannerClickTag> = {}): BannerClickTag => ({
+        enabled: true,
+        url: 'https://www.example.com/landing',
+        target: '_blank',
+        ...overrides,
+    });
+
+    describe('resolveBannerClickTagUrl', () => {
+        it('returns the configured URL only when the switch is on and it is safe', () => {
+            expect(resolveBannerClickTagUrl(banner())).toBe('https://www.example.com/landing');
+            expect(resolveBannerClickTagUrl(banner({ enabled: false }))).toBe('');
+            expect(resolveBannerClickTagUrl(banner({ url: 'javascript:alert(1)' }))).toBe('');
+            expect(resolveBannerClickTagUrl(undefined)).toBe('');
+        });
+    });
+
+    describe('buildBannerClickTagDeclaration', () => {
+        it('declares the standard clickTag with the configured URL', () => {
+            expect(buildBannerClickTagDeclaration(banner())).toBe('var clickTag = "https://www.example.com/landing";');
+        });
+
+        it('normalises a bare domain typed by the designer', () => {
+            expect(buildBannerClickTagDeclaration(banner({ url: 'example.com/landing' }))).toBe(
+                'var clickTag = "https://example.com/landing";',
+            );
+        });
+
+        it('keeps the "#" placeholder when the switch is off or nothing was configured', () => {
+            expect(buildBannerClickTagDeclaration(banner({ enabled: false }))).toBe('var clickTag = "#";');
+            expect(buildBannerClickTagDeclaration(undefined)).toBe('var clickTag = "#";');
+        });
+
+        it('never exports a script URL', () => {
+            expect(buildBannerClickTagDeclaration(banner({ url: 'javascript:alert(1)' }))).toBe('var clickTag = "#";');
+        });
+    });
+
+    describe('buildBannerClickTagEvent', () => {
+        /** Wires the event against fake document/window objects, like a browser would. */
+        const wire = (clickTag?: BannerClickTag, search = '', winOverrides: Record<string, unknown> = {}) => {
+            const listeners: Array<(event: unknown) => void> = [];
+            const bannerEl = {
+                style: {} as Record<string, string>,
+                addEventListener: (type: string, fn: (event: unknown) => void) => {
+                    if (type === 'click') listeners.push(fn);
+                },
+            };
+            const dom = { getElementById: (id: string) => (id === 'banner' ? bannerEl : null) };
+            const opened: Array<{ url: string; target: string }> = [];
+            const win = {
+                location: { search },
+                open: (url: string, target: string) => { opened.push({ url, target }); },
+                ...winOverrides,
+            };
+            const factory = new Function('document', 'window', 'return [' + buildBannerClickTagEvent(clickTag) + '];');
+            const timeline = factory(dom, win) as Array<{ time: number; action: () => void }>;
+            expect(timeline).toHaveLength(1);
+            expect(typeof timeline[0].action).toBe('function');
+            timeline[0].action();
+            return {
+                bannerEl,
+                opened,
+                win: win as Record<string, unknown>,
+                click: (target: unknown) => listeners.forEach((fn) => fn({ target })),
+            };
+        };
+
+        const plainTarget = { closest: () => null };
+        const hotspotTarget = { closest: (selector: string) => (selector === 'a' ? {} : null) };
+
+        it('compiles as a timeline entry', () => {
+            expect(() => checkTimeline([buildBannerClickTagEvent(banner())])).not.toThrow();
+        });
+
+        it('makes the whole banner clickable and opens the declared URL in the configured target', () => {
+            const wired = wire(banner({ target: '_self' }));
+
+            expect(wired.bannerEl.style.cursor).toBe('pointer');
+            wired.click(plainTarget);
+            expect(wired.opened).toEqual([{ url: 'https://www.example.com/landing', target: '_self' }]);
+        });
+
+        it('lets element hotspots keep their own destination', () => {
+            const wired = wire(banner());
+
+            wired.click(hotspotTarget);
+            expect(wired.opened).toEqual([]);
+        });
+
+        it('prefers a ?clickTag= query parameter over the declared URL', () => {
+            const wired = wire(banner(), '?clickTag=https%3A%2F%2Fadserver.com%2Fclick');
+
+            wired.click(plainTarget);
+            expect(wired.opened).toEqual([{ url: 'https://adserver.com/click', target: '_blank' }]);
+        });
+
+        it('honours a window.clickTag override even when the switch is off', () => {
+            const wired = wire(banner({ enabled: false, url: '' }), '', { clickTag: 'https://override.com/' });
+
+            expect(wired.bannerEl.style.cursor).toBe('pointer');
+            wired.click(plainTarget);
+            expect(wired.opened).toEqual([{ url: 'https://override.com/', target: '_blank' }]);
+        });
+
+        it('stays non-clickable without any destination', () => {
+            const wired = wire(banner({ enabled: false, url: '' }));
+
+            expect(wired.bannerEl.style.cursor).toBeUndefined();
+            wired.click(plainTarget);
+            expect(wired.opened).toEqual([]);
+        });
+
+        it('rejects an unsafe query parameter', () => {
+            const wired = wire(banner({ enabled: false, url: '' }), '?clickTag=javascript:alert(1)');
+
+            wired.click(plainTarget);
+            expect(wired.opened).toEqual([]);
+        });
+
+        it('exposes window.getClickTagValue for ad-tag integrations', () => {
+            const wired = wire(banner(), '?clickTAG=https://alt.com/&x=1');
+            const get = wired.win.getClickTagValue as (name?: string) => string;
+
+            expect(get('clickTAG')).toBe('https://alt.com/');
+            expect(get()).toBe('');
+        });
     });
 });
 

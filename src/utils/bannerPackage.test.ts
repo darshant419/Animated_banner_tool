@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBannerPackage, buildPreviewHtml, type BannerPackage } from './bannerPackage';
+import { buildBannerPackage, buildPreviewHtml, type BannerPackage, type BuildBannerPackageOptions } from './bannerPackage';
 import type { DesignElement } from '../store/designStore';
 
 const makePackage = (overrides: Partial<BannerPackage> = {}): BannerPackage => ({
@@ -44,7 +44,7 @@ describe('buildPreviewHtml', () => {
 });
 
 /** Banner with one text element; individual tests add links to it. */
-const buildPackage = (elements: DesignElement[]) =>
+const buildPackage = (elements: DesignElement[], options: Partial<BuildBannerPackageOptions> = {}) =>
     buildBannerPackage({
         canvasWidth: 300,
         canvasHeight: 250,
@@ -52,6 +52,7 @@ const buildPackage = (elements: DesignElement[]) =>
         totalDuration: 5,
         loop: false,
         elements,
+        ...options,
     });
 
 const bannerElement = (overrides: Partial<DesignElement> = {}): DesignElement => ({
@@ -128,3 +129,48 @@ describe('buildBannerPackage click tags', () => {
         expect(pkg.html).toContain('var clickTag3 = "https://pi.com/doc.pdf";');
     });
 });
+
+describe('buildBannerPackage banner click tag', () => {
+    it('declares the standard clickTag in the head and wires the whole banner when enabled', async () => {
+        const pkg = await buildPackage([bannerElement()], {
+            useAsClickTag: true,
+            clickTagUrl: 'https://www.example.com/landing',
+            clickTagTarget: '_self',
+        });
+
+        expect(pkg.html).toContain('    var clickTag = "https://www.example.com/landing";');
+        expect(pkg.js).toContain('var defaultUrl = "https://www.example.com/landing";');
+        expect(pkg.js).toContain('var target = "_self";');
+        expect(pkg.js).toContain('window.getClickTagValue');
+        expect(pkg.js).toContain('node.closest("a")');
+    });
+
+    it('keeps the "#" placeholder and no default destination when the switch is off', async () => {
+        const pkg = await buildPackage([bannerElement()], {
+            useAsClickTag: false,
+            clickTagUrl: 'https://www.example.com/landing',
+        });
+
+        expect(pkg.html).toContain('    var clickTag = "#";');
+        expect(pkg.js).toContain('var defaultUrl = "";');
+    });
+
+    it('always declares clickTag, even for a banner without any configuration', async () => {
+        const pkg = await buildPackage([]);
+
+        expect(pkg.html).toContain('    var clickTag = "#";');
+        expect(pkg.html).toContain('    var clickTag1 = "#";');
+    });
+
+    it('never exports an unsafe click tag URL', async () => {
+        const pkg = await buildPackage([bannerElement()], {
+            useAsClickTag: true,
+            clickTagUrl: 'javascript:alert(1)',
+        });
+
+        expect(pkg.html).toContain('    var clickTag = "#";');
+        expect(pkg.html).not.toContain('javascript:alert(1)');
+        expect(pkg.js).not.toContain('javascript:alert(1)');
+    });
+});
+

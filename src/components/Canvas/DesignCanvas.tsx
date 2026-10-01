@@ -655,6 +655,9 @@ export const DesignCanvas: React.FC = () => {
     loop,
     canvasBackground,
     canvasBackgroundImage,
+    useAsClickTag,
+    clickTagUrl,
+    clickTagTarget,
   } = useDesignStore();
 
   // Live stage instances by artboard id G lets exports grab the focused board's stage.
@@ -715,6 +718,9 @@ export const DesignCanvas: React.FC = () => {
         totalDuration,
         loop,
         elements,
+        useAsClickTag,
+        clickTagUrl,
+        clickTagTarget,
       });
       const content = await zipBannerPackage(pkg);
       const link = document.createElement('a');
@@ -726,7 +732,7 @@ export const DesignCanvas: React.FC = () => {
     };
     window.addEventListener('export-html', handleExportHTML);
     return () => window.removeEventListener('export-html', handleExportHTML);
-  }, [elements, canvasWidth, canvasHeight, loop, totalDuration, canvasBackground, canvasBackgroundImage]);
+  }, [elements, canvasWidth, canvasHeight, loop, totalDuration, canvasBackground, canvasBackgroundImage, useAsClickTag, clickTagUrl, clickTagTarget]);
 
   const segBtn = (active: boolean) =>
     `flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
