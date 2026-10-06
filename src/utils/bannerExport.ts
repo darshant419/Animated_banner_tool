@@ -221,6 +221,268 @@ export const buildElementAnimationCss = ({
     };
 };
 
+/**
+ * Geometry of the ISI "Prescribing Information" strip.
+ *
+ * The strip is a separate end-to-end band above the scrolling body. It carries
+ * its OWN padding and vertical margin so the tray's ISI padding — which applies
+ * to the scrolling content only — never shifts or shrinks it.
+ */
+export interface IsiHeaderStripStyle {
+    paddingTop: number;
+    paddingRight: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    /** Gap between the top of the tray and the strip (0 = flush). */
+    marginTop: number;
+    /** Gap between the strip and the scrolling body (0 = flush). */
+    marginBottom: number;
+    /** Height of the strip band itself, excluding its margins. */
+    height: number;
+    /** Height the strip takes out of the tray: margins + band. */
+    totalHeight: number;
+}
+
+const ISI_HEADER_PADDING_DEFAULT = 4;
+const ISI_HEADER_HEIGHT_DEFAULT = 20;
+
+/** Reads a non-negative number, falling back when the field is unset. */
+const nonNegative = (value: number | undefined, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : fallback;
+
+/**
+ * Resolves the PI strip's own box. Padding/margin/height are read from the
+ * element only — the ISI tray padding is deliberately not consulted, which is
+ * what keeps the strip independent of the scrolling content's spacing.
+ */
+export const getIsiHeaderStripStyle = (
+    el: Pick<
+        DesignElement,
+        | 'isiHeaderPadding'
+        | 'isiHeaderPaddingTop'
+        | 'isiHeaderPaddingRight'
+        | 'isiHeaderPaddingBottom'
+        | 'isiHeaderPaddingLeft'
+        | 'isiHeaderMarginTop'
+        | 'isiHeaderMarginBottom'
+        | 'isiHeaderHeight'
+    >,
+): IsiHeaderStripStyle => {
+    const pad = nonNegative(el.isiHeaderPadding, ISI_HEADER_PADDING_DEFAULT);
+    const marginTop = nonNegative(el.isiHeaderMarginTop, 0);
+    const marginBottom = nonNegative(el.isiHeaderMarginBottom, 0);
+    const height = nonNegative(el.isiHeaderHeight, ISI_HEADER_HEIGHT_DEFAULT);
+
+    return {
+        paddingTop: nonNegative(el.isiHeaderPaddingTop, pad),
+        paddingRight: nonNegative(el.isiHeaderPaddingRight, pad),
+        paddingBottom: nonNegative(el.isiHeaderPaddingBottom, pad),
+        paddingLeft: nonNegative(el.isiHeaderPaddingLeft, pad),
+        marginTop,
+        marginBottom,
+        height,
+        // The body starts after the strip AND its margins, so subtracting only
+        // `height` used to overlap the body with the strip's bottom margin.
+        totalHeight: marginTop + height + marginBottom,
+    };
+};
+
+/**
+ * Scoped CSS for the PI strip: its own end-to-end band with its own padding and
+ * margin, independent of the ISI tray padding that governs the scrolling body.
+ *
+ * `!important` because the shared base stylesheet (`.patient_link p`) hard-codes
+ * a padding and a `margin: 5px 0 10px 0`; without this the strip would keep the
+ * old gaps and could never be made flush.
+ */
+export const buildIsiHeaderCss = (scope: string, el: DesignElement): string[] => {
+    const s = getIsiHeaderStripStyle(el);
+    const sel = scope.startsWith('#') ? scope : '#' + scope;
+
+    return [
+        sel + ' .patient_link { margin: ' + s.marginTop + 'px 0 ' + s.marginBottom + 'px 0 !important; ' +
+            'height: ' + s.height + 'px; width: 100%; box-sizing: border-box; display: flex; align-items: center; }',
+        sel + ' .patient_link p { margin: 0 !important; padding: ' + s.paddingTop + 'px ' + s.paddingRight + 'px ' +
+            s.paddingBottom + 'px ' + s.paddingLeft + 'px !important; width: 100%; box-sizing: border-box; }',
+    ];
+};
+
+/**
+ * Resolved geometry of the standalone PI strip element.
+ *
+ * The strip is its own layer: it is positioned and z-ordered independently of
+ * the ISI tray and carries its own padding, so the tray's ISI padding never
+ * touches it.
+ */
+export interface PiStripStyle {
+    paddingTop: number;
+    paddingRight: number;
+    paddingBottom: number;
+    paddingLeft: number;
+    background: string;
+    borderRadius: number;
+    align: 'left' | 'center' | 'right';
+}
+
+const PI_STRIP_PADDING_DEFAULT = 4;
+const PI_STRIP_BACKGROUND_DEFAULT = '#E8FFF9';
+
+/** Reads the standalone PI strip's own box. */
+export const getPiStripStyle = (
+    el: Pick<DesignElement, 'piBackground' | 'piPadding' | 'piPaddingTop' | 'piPaddingRight' | 'piPaddingBottom' | 'piPaddingLeft' | 'piBorderRadius' | 'piAlign'>,
+): PiStripStyle => {
+    const pad = nonNegative(el.piPadding, PI_STRIP_PADDING_DEFAULT);
+
+    return {
+        paddingTop: nonNegative(el.piPaddingTop, pad),
+        paddingRight: nonNegative(el.piPaddingRight, pad),
+        paddingBottom: nonNegative(el.piPaddingBottom, pad),
+        paddingLeft: nonNegative(el.piPaddingLeft, pad),
+        background: el.piBackground || PI_STRIP_BACKGROUND_DEFAULT,
+        borderRadius: nonNegative(el.piBorderRadius, 0),
+        align: el.piAlign === 'center' || el.piAlign === 'right' ? el.piAlign : 'left',
+    };
+};
+
+/**
+ * Upgrades older banners where the "Prescribing Information" strip lived inside
+ * the ISI tray: each such tray is split into a standalone `piStrip` element
+ * (placed directly above the tray, spanning its full width) plus an ISI that
+ * keeps only the scrolling text.
+ *
+ * The new strip is inserted immediately before its tray so it keeps sitting
+ * underneath in the layer order, and the tray is trimmed to the space the strip
+ * used to occupy.
+ */
+export const migrateIsiHeaderToPiStrip = (elements: DesignElement[]): DesignElement[] => {
+    if (!elements.some((el) => el.type === 'isiScroll' && el.isiHeaderText)) return elements;
+
+    const out: DesignElement[] = [];
+
+    elements.forEach((el, index) => {
+        if (el.type !== 'isiScroll' || !el.isiHeaderText) {
+            out.push(el);
+            return;
+        }
+
+        const strip: DesignElement = {
+            id: `${el.id}-pi-strip`,
+            type: 'piStrip',
+            name: 'PI Strip',
+            x: el.x,
+            // Sit directly above the tray's content.
+            y: Math.max(0, el.y - (el.isiHeaderHeight || 20) - (el.isiHeaderMarginTop || 0) - (el.isiHeaderMarginBottom || 0)),
+            width: el.width,
+            height: el.isiHeaderHeight || 20,
+            text: el.isiHeaderText,
+            fill: el.isiHeaderColor || '#000000',
+            fontSize: 10,
+            linkUrl: el.isiHeaderLink,
+            linkClickTag: el.isiHeaderClickTag,
+            piBackground: el.isiHeaderBackground,
+            piPadding: el.isiHeaderPadding,
+            piPaddingTop: el.isiHeaderPaddingTop,
+            piPaddingRight: el.isiHeaderPaddingRight,
+            piPaddingBottom: el.isiHeaderPaddingBottom,
+            piPaddingLeft: el.isiHeaderPaddingLeft,
+        };
+        out.push(strip);
+
+        // The tray keeps only its scrolling text: it loses the header and grows
+        // back to the full height the band used to take from it.
+        const headerSpace = (el.isiHeaderHeight || 20) + (el.isiHeaderMarginTop || 0) + (el.isiHeaderMarginBottom || 0);
+        const next: DesignElement = { ...el, height: (el.height || 0) + headerSpace, y: el.y };
+        delete next.isiHeaderText;
+        delete next.isiHeaderLink;
+        delete next.isiHeaderHeight;
+        delete next.isiHeaderPadding;
+        delete next.isiHeaderPaddingTop;
+        delete next.isiHeaderPaddingRight;
+        delete next.isiHeaderPaddingBottom;
+        delete next.isiHeaderPaddingLeft;
+        delete next.isiHeaderMarginTop;
+        delete next.isiHeaderMarginBottom;
+        delete next.isiHeaderClickTag;
+        void index;
+        out.push(next);
+    });
+
+    return out;
+};
+
+/**
+ * Default gap between ISI bullet items, matching the reference EMR banner.
+ */
+const ISI_BULLET_SPACING_DEFAULT = 4;
+/**
+ * Default left indent of the ISI bullet list: 0, so bullets sit flush with the
+ * tray's own padding instead of being pushed in by an extra step.
+ */
+const ISI_BULLET_INDENT_DEFAULT = 0;
+/** Default gap between the bullet glyph and the text (reference EMR banner). */
+const ISI_BULLET_GAP_DEFAULT = 2;
+
+/**
+ * Resolved spacing values for an ISI bullet list.
+ *
+ * Exported by the same module that writes the CSS so the canvas preview, the
+ * Properties panel read-out and the generated banner can never disagree about
+ * what a bullet looks like.
+ */
+export interface IsiBulletSpacing {
+    /** Vertical gap between list items (`li` margin-bottom). */
+    spacing: number;
+    /** Left indent of the list (`ul` padding-left). */
+    indent: number;
+    /** Gap between the bullet glyph and the text (hanging indent). */
+    gap: number;
+    /** Left offset of the item content, used to line up wrapped lines. */
+    itemIndent: number;
+}
+
+/**
+ * Reads the ISI bullet spacing off an element, clamping negatives and falling
+ * back to the reference banner's values when a field is unset.
+ */
+export const getIsiBulletSpacing = (el: Pick<DesignElement, 'isiBulletSpacing' | 'isiBulletIndent' | 'isiBulletGap'>): IsiBulletSpacing => {
+    const clamp = (value: number | undefined, fallback: number): number =>
+        typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : fallback;
+
+    const gap = clamp(el.isiBulletGap, ISI_BULLET_GAP_DEFAULT);
+
+    return {
+        spacing: clamp(el.isiBulletSpacing, ISI_BULLET_SPACING_DEFAULT),
+        indent: clamp(el.isiBulletIndent, ISI_BULLET_INDENT_DEFAULT),
+        gap,
+        // The hanging indent: the bullet is drawn by ::before at 0 and the text
+        // is pushed right by `gap`, so wrapped lines align under the first word.
+        itemIndent: gap,
+    };
+};
+
+/**
+ * CSS declarations overriding the default ISI bullet list for one element.
+ *
+ * The base stylesheet positions the bullet with `text-indent` + `margin-left`;
+ * setting `padding-left` and a matching `text-indent` here keeps wrapped lines
+ * aligned under the first character at any gap the designer picks.
+ *
+ * `!important` is required, not cosmetic. The ISI templates tag their bullet
+ * items with utility classes (`.mb-7`, `.mb-10`, ...) which are themselves
+ * declared `!important`, so an ordinary declaration here would ALWAYS lose to
+ * the template class and the Gap control would appear to do nothing. The ID
+ * selector alone cannot outrank an `!important` declaration.
+ */
+export const buildIsiBulletCss = (id: string, el: DesignElement): string[] => {
+    const { spacing, indent, itemIndent } = getIsiBulletSpacing(el);
+
+    return [
+        '#' + id + ' .isi ul { padding-left: ' + indent + 'px !important; }',
+        '#' + id + ' .isi ul li { margin-bottom: ' + spacing + 'px !important; margin-left: 0; text-indent: -' + itemIndent + 'px; padding-left: ' + itemIndent + 'px; }',
+        '#' + id + ' .isi ul li::before { left: -' + itemIndent + 'px; }',
+    ];
+};
+
 /** Safely embeds a value as a JavaScript string literal (never breaks parsing). */
 export const jsStringLiteral = (value: string): string => JSON.stringify(String(value ?? ''));
 
@@ -264,12 +526,17 @@ export const isSafeLinkUrl = (url?: string): boolean => {
 };
 
 /** Where a link lives inside an element: the element box, or an ISI sub-link. */
-export type LinkSlot = 'box' | 'isiHeader' | 'isiLogo';
+export type LinkSlot = 'box' | 'isiLogo' | 'isiText';
 
 /** One clickable location found on the banner. */
 export interface LinkSource {
     elementId: string;
     slot: LinkSlot;
+    /**
+     * Position of the link inside the slot. Only `isiText` needs it, because
+     * the ISI rich text can hold any number of anchors.
+     */
+    index?: number;
     url: string;
     target: LinkTarget;
     clickTag?: LinkClickTag;
@@ -298,15 +565,125 @@ export interface ClickTagPlan {
 }
 
 /** Map key for `ClickTagPlan.byElementSlot`. */
-export const linkKey = (elementId: string, slot: LinkSlot): string => elementId + ':' + slot;
+export const linkKey = (elementId: string, slot: LinkSlot, index?: number): string =>
+    index === undefined ? elementId + ':' + slot : elementId + ':' + slot + ':' + index;
+
+/** One `<a>` found inside the ISI rich text. */
+export interface IsiTextAnchor {
+    /** Position of the anchor in `el.isiText`, counting every anchor. */
+    index: number;
+    /** Normalized destination of the anchor (empty when it has no usable href). */
+    url: string;
+    /** The anchor's full opening tag, used to rebuild it with click-tag wiring. */
+    openTag: string;
+    /** Visible label of the anchor, for the Properties panel read-out. */
+    text: string;
+}
+
+/** Opening tags of the anchors inside the ISI rich text, in document order. */
+const ISI_ANCHOR_PATTERN = /<a\b[^>]*>/gi;
+
+/** Removes any markup from a fragment, leaving its visible text. */
+const stripHtml = (html: string): string =>
+    html
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'");
+/** `href="…"` (single, double or unquoted) inside an anchor opening tag. */
+const HREF_ATTRIBUTE_PATTERN = /\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
+
+/**
+ * Extracts every `<a>` of the ISI rich text so each one can be assigned a
+ * click-tag variable instead of shipping as a hard-coded `href`.
+ *
+ * Section links such as `www.fda.gov/medwatch` and the Prescribing Information
+ * link live inside this HTML, so without this they would bypass the click-tag
+ * variables entirely.
+ */
+export const collectIsiTextAnchors = (isiText?: string): IsiTextAnchor[] => {
+    const anchors: IsiTextAnchor[] = [];
+    if (!isiText) return anchors;
+
+    const pattern = new RegExp(ISI_ANCHOR_PATTERN.source, 'gi');
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(isiText)) !== null) {
+        const openTag = match[0];
+        const hrefMatch = new RegExp(HREF_ATTRIBUTE_PATTERN.source, 'i').exec(openTag);
+        const rawHref = hrefMatch ? (hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? '') : '';
+        const url = normalizeLinkUrl(rawHref);
+
+        // Label = whatever sits between this opening tag and its closing tag,
+        // with any nested markup stripped, so the panel can name the link.
+        const innerStart = match.index + openTag.length;
+        const closeIndex = isiText.toLowerCase().indexOf('</a', innerStart);
+        const inner = isiText.slice(innerStart, closeIndex === -1 ? undefined : closeIndex);
+        const text = stripHtml(inner).replace(/\s+/g, ' ').trim();
+
+        anchors.push({
+            index: anchors.length,
+            url: isSafeLinkUrl(url) ? url : '',
+            openTag,
+            text,
+        });
+    }
+    return anchors;
+};
+
+/** Strips `href` / `target` / `onclick` so the click-tag attributes can replace them. */
+const stripAnchorNavigationAttributes = (openTag: string): string =>
+    openTag
+        .replace(/\s(?:href|target|onclick)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+        // Removing the attributes can leave a doubled space after `<a`.
+        .replace(/<a\s+/i, '<a ')
+        .replace(/\s+>/, '>');
+
+/**
+ * Rebuilds the ISI rich text with each anchor wired to its click-tag variable.
+ * `byIndex` maps the anchor's position in `el.isiText` to its assignment; an
+ * anchor without an entry (unsafe or unassigned) keeps its original tag.
+ */
+export const applyIsiTextClickTags = (
+    isiText: string,
+    byIndex: Record<number, ElementLinkAssignment>,
+): string => {
+    if (!isiText) return '';
+
+    let result = '';
+    let cursor = 0;
+    let index = 0;
+    const pattern = new RegExp(ISI_ANCHOR_PATTERN.source, 'gi');
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(isiText)) !== null) {
+        const start = match.index;
+        const openTag = match[0];
+        result += isiText.slice(cursor, start);
+
+        const assignment = byIndex[index];
+        result += assignment
+            ? stripAnchorNavigationAttributes(openTag).replace(/^<a\s*/i, '<a ' + buildLinkAttributes(assignment) + ' ')
+            : openTag;
+
+        cursor = start + openTag.length;
+        index += 1;
+    }
+
+    return result + isiText.slice(cursor);
+};
 
 /**
  * Collects every clickable location on the banner, in DOM (z-order) order:
- * for each element its box, then the ISI header strip and the ISI logo.
+ * for each element its box, then the ISI header strip, the ISI logo and every
+ * `<a>` inside the ISI rich text.
  *
  * The ISI tray itself never gets a box hotspot — it would swallow the tray's
  * own scrolling and hover-to-pause behaviour — so its links are the strip, the
- * logo and any `<a>` inside the ISI rich text.
+ * logo and its rich-text anchors (the ISI section links such as the medwatch
+ * and Prescribing Information references).
  */
 export const collectLinkSources = (elements: DesignElement[]): LinkSource[] => {
     const sources: LinkSource[] = [];
@@ -315,16 +692,6 @@ export const collectLinkSources = (elements: DesignElement[]): LinkSource[] => {
         if (el.visible === false) continue;
 
         if (el.type === 'isiScroll') {
-            const headerUrl = normalizeLinkUrl(el.isiHeaderLink);
-            if (el.isiHeaderText && isSafeLinkUrl(headerUrl)) {
-                sources.push({
-                    elementId: el.id,
-                    slot: 'isiHeader',
-                    url: headerUrl,
-                    target: '_blank',
-                    clickTag: el.isiHeaderClickTag,
-                });
-            }
             const logoUrl = normalizeLinkUrl(el.isiLogoLink);
             if (el.isiLogoSrc && isSafeLinkUrl(logoUrl)) {
                 sources.push({
@@ -333,6 +700,22 @@ export const collectLinkSources = (elements: DesignElement[]): LinkSource[] => {
                     url: logoUrl,
                     target: '_blank',
                     clickTag: el.isiLogoClickTag,
+                });
+            }
+            // Section links inside the ISI rich text, e.g. "www.fda.gov/medwatch"
+            // and the Prescribing Information link. They share the click-tag
+            // variables with the rest of the banner instead of exporting as
+            // hard-coded hrefs, and each one can be pinned to a specific
+            // variable from the Properties panel.
+            for (const anchor of collectIsiTextAnchors(el.isiText)) {
+                if (!anchor.url) continue;
+                sources.push({
+                    elementId: el.id,
+                    slot: 'isiText',
+                    index: anchor.index,
+                    url: anchor.url,
+                    target: '_blank',
+                    clickTag: el.isiTextClickTags?.[anchor.index],
                 });
             }
             continue;
@@ -359,7 +742,10 @@ export const collectLinkSources = (elements: DesignElement[]): LinkSource[] => {
  * - an explicit `clickTagN` keeps that variable while it is free; if the same
  *   URL already owns it the link reuses it, otherwise the link is re-assigned
  *   so two different destinations can never overwrite each other,
- * - `auto` / undefined takes the next free variable (clickTag1 -> 2 -> 3),
+ * - `auto` / undefined reuses a variable already pointing at the very same
+ *   destination (an ISI section link pointing at the same PI document as a
+ *   hotspot must not burn a second variable), then takes the next free one
+ *   (clickTag1 -> 2 -> 3),
  * - `none` exports a plain `href`,
  * - once all three variables are taken the remaining links fall back to a plain
  *   `href` as well, so a link is never silently dropped.
@@ -369,7 +755,7 @@ export const buildClickTagPlan = (sources: LinkSource[]): ClickTagPlan => {
     const byElementSlot: Record<string, ElementLinkAssignment> = {};
 
     for (const source of sources) {
-        const key = linkKey(source.elementId, source.slot);
+        const key = linkKey(source.elementId, source.slot, source.index);
         const requested = source.clickTag;
 
         if (requested === 'none') {
@@ -385,6 +771,15 @@ export const buildClickTagPlan = (sources: LinkSource[]): ClickTagPlan => {
                 continue;
             }
             // Requested variable belongs to another destination -> next free one.
+        } else {
+            // Same destination as an existing variable: reuse it instead of
+            // consuming another one, so the three variables stay available for
+            // genuinely different destinations.
+            const sameUrl = declarations.find((d) => d.url === source.url);
+            if (sameUrl) {
+                byElementSlot[key] = { name: sameUrl.name, url: source.url, target: source.target };
+                continue;
+            }
         }
 
         const free = CLICK_TAG_NAMES.find((name) => !declarations.some((d) => d.name === name));
@@ -543,7 +938,15 @@ export const buildClickHotspot = (opts: {
     opts.z +
     ';"></a>';
 
-/** JS timeline entry that attaches CSS animations to one element at its start time. */
+/**
+ * JS timeline entry that attaches the CSS animation to one element.
+ *
+ * The animation is detached first and the element is forced to reflow before it
+ * is attached again. Re-assigning an identical `animation` shorthand is a no-op
+ * in every browser, so without this reset a looping banner would play each
+ * element's entrance once and then freeze on its final frame instead of
+ * restarting every cycle.
+ */
 export const buildAnimationStartEvent = (opts: {
     id: string;
     startDelayMs: number;
@@ -554,9 +957,13 @@ export const buildAnimationStartEvent = (opts: {
     '      { time: ' + opts.startDelayMs + ', action: () => {\n' +
     '        var el = document.getElementById(' + jsStringLiteral(opts.id) + ');\n' +
     '        if (el) {\n' +
+    // Restart-safe: drop the previous animation, flush layout, re-attach.
+    '          el.style.animation = "none";\n' +
+    '          void el.offsetWidth;\n' +
     '          el.style.animation = ' + jsStringLiteral(
         opts.durationMs + 'ms linear' + (opts.loop ? ' infinite' : '') + ' ' + opts.animationName,
     ) + ';\n' +
+    // Must come after the shorthand, which resets animation-fill-mode to none.
     '          el.style.animationFillMode = "forwards";\n' +
     '        }\n' +
     '      } },';
@@ -630,9 +1037,16 @@ export const buildIsiScrollEvent = (opts: {
 
 /**
  * Assembles the exported `js/main.js`: clickTags + the animation timeline.
+ *
  * Every entry runs through `setTimeout` once the window has finished loading.
+ * When the banner loops, the whole timeline is re-armed on every cycle so each
+ * element replays its entrance / "Disappear" exactly like the editor preview.
  */
-export const buildMainJs = (events: string[], clickTags: ClickTagDeclaration[] = []): string => {
+export const buildMainJs = (
+    events: string[],
+    clickTags: ClickTagDeclaration[] = [],
+    options: { loop?: boolean; totalDurationSeconds?: number } = {},
+): string => {
     const lines: string[] = [];
     lines.push('// Banner animation timeline');
     lines.push(...buildClickTagDeclarations(clickTags));
@@ -641,10 +1055,23 @@ export const buildMainJs = (events: string[], clickTags: ClickTagDeclaration[] =
     lines.push(...events);
     lines.push('];');
     lines.push('');
-    lines.push('window.onload = function() {');
+    lines.push('function runAnimationTimeline() {');
     lines.push('  animationTimeline.forEach(function(event) {');
     lines.push('    setTimeout(event.action, event.time);');
     lines.push('  });');
+    lines.push('}');
+    lines.push('');
+    lines.push('window.onload = function() {');
+    if (options.loop && (options.totalDurationSeconds ?? 0) > 0) {
+        const cycleMs = Math.max(1, Math.round((options.totalDurationSeconds as number) * 1000));
+        lines.push('  runAnimationTimeline();');
+        lines.push('  // Looping banner: restart the timeline every cycle. Re-running the');
+        lines.push('  // start events re-attaches each CSS animation from its first frame,');
+        lines.push('  // so "Stay on banner" and "Disappear" layers reset every loop.');
+        lines.push('  window.setInterval(runAnimationTimeline, ' + cycleMs + ');');
+    } else {
+        lines.push('  runAnimationTimeline();');
+    }
     lines.push('};');
     return lines.join('\n');
 };

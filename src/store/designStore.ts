@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type ElementType = 'text' | 'rect' | 'circle' | 'image' | 'video' | 'isiScroll' | 'shape' | 'html';
+export type ElementType = 'text' | 'rect' | 'circle' | 'image' | 'video' | 'isiScroll' | 'shape' | 'html' | 'piStrip';
 
 export interface AnimationKeyframe {
     id: string;
@@ -172,17 +172,61 @@ export interface DesignElement {
     isiScrollbarWidth?: number;
     isiLineHeight?: number;
     isiLetterSpacing?: number;
+    /** Vertical gap between the ISI bullet-list items, in px (defaults to 4). */
+    isiBulletSpacing?: number;
+    /** Left indent applied to the ISI bullet list, in px (defaults to 11). */
+    isiBulletIndent?: number;
+    /**
+     * Gap between the bullet glyph and the item text, in px. Applied to the
+     * hanging indent so wrapped lines line up under the first character
+     * (defaults to 2, matching the reference EMR banner).
+     */
+    isiBulletGap?: number;
     isiFontFamily?: string;
     isiFontWeight?: string;
     isiFontStyle?: 'normal' | 'italic';
     isiBorderWidth?: number;
     isiBorderColor?: string;
     // Traditional ISI header bar ("Prescribing Information" patient link strip)
+    // LEGACY: the PI strip used to live inside the ISI tray. It is now its own
+    // `piStrip` element (own position, size and z-order); these fields are only
+    // read by `migrateIsiHeaderToPiStrip` to upgrade older saved banners.
+    /** @deprecated moved to the standalone `piStrip` element. */
     isiHeaderText?: string;
+    /** @deprecated moved to the standalone `piStrip` element. */
     isiHeaderLink?: string;
     isiHeaderColor?: string;
     isiHeaderBackground?: string;
     isiHeaderHeight?: number;
+    /** The PI strip's own padding (all sides), independent of the ISI padding. */
+    isiHeaderPadding?: number;
+    /** Per-side overrides of the PI strip padding. */
+    isiHeaderPaddingTop?: number;
+    isiHeaderPaddingRight?: number;
+    isiHeaderPaddingBottom?: number;
+    isiHeaderPaddingLeft?: number;
+    /** Gap above the PI strip (0 = flush with the top of the tray). */
+    isiHeaderMarginTop?: number;
+    /** Gap between the PI strip and the scrolling body (0 = flush). */
+    isiHeaderMarginBottom?: number;
+
+    // ---- Standalone "Prescribing Information" strip (its own layer) ----
+    // Uses the shared element fields for geometry and linking: x / y / width /
+    // height place and size it, `text` is the label, `fill` the text colour,
+    // `fontSize` the type size, and `linkUrl` / `linkTarget` / `linkClickTag`
+    // drive the click-through. Everything below is specific to the strip.
+    /** Background colour of the strip band. */
+    piBackground?: string;
+    /** Strip padding (all sides); individual sides override it. */
+    piPadding?: number;
+    piPaddingTop?: number;
+    piPaddingRight?: number;
+    piPaddingBottom?: number;
+    piPaddingLeft?: number;
+    /** Corner radius of the strip band. */
+    piBorderRadius?: number;
+    /** Horizontal alignment of the label inside the strip. */
+    piAlign?: 'left' | 'center' | 'right';
     // Wave properties
     waveAmplitude?: number;
     waveFrequency?: number;
@@ -202,6 +246,13 @@ export interface DesignElement {
     isiHeaderClickTag?: LinkClickTag;
     /** Click-tag binding for the ISI tray's logo image. */
     isiLogoClickTag?: LinkClickTag;
+    /**
+     * Click-tag binding per anchor of the ISI rich text, keyed by the anchor's
+     * position in `isiText` (0-based, counting every `<a>`). Lets each ISI
+     * section link — medwatch, Prescribing Information, … — be pinned to a
+     * specific variable instead of being auto-assigned.
+     */
+    isiTextClickTags?: Record<number, LinkClickTag>;
 }
 
 export interface SelectedKeyframe {

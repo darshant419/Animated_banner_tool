@@ -106,30 +106,156 @@ describe('buildBannerPackage click tags', () => {
         expect(pkg.html).not.toContain('javascript:alert(1)');
     });
 
-    it('keeps the ISI tray un-clickable but links its strip and logo', async () => {
+    it('keeps the ISI tray un-clickable but links its logo and section links', async () => {
         const pkg = await buildPackage([
             bannerElement({
                 id: 'isi-1',
                 type: 'isiScroll',
                 linkUrl: 'https://ignore-me.com/',
-                isiText: '<p>Safety</p>',
-                isiHeaderText: 'Prescribing Information',
-                isiHeaderLink: 'https://pi.com/doc.pdf',
-                isiHeaderClickTag: 'clickTag3',
+                isiText: '<p>See <a href="https://www.fda.gov/medwatch">medwatch</a></p>',
                 isiLogoSrc: '/emr_assets/logo.png',
                 isiLogoLink: 'https://logo.com/',
             }),
         ]);
 
         expect(pkg.html).not.toContain('link-isi-1');
-        // Header strip kept its explicit variable, the logo took the first free one.
-        expect(pkg.html).toContain('window.open(window.clickTag3, \'_blank\')');
-        expect(pkg.html).toContain('window.open(window.clickTag1, \'_blank\')');
+        // No patient_link band is rendered inside the tray any more.
+        expect(pkg.html).not.toContain('patient_link');
         expect(pkg.html).toContain('var clickTag1 = "https://logo.com/";');
-        expect(pkg.html).toContain('var clickTag3 = "https://pi.com/doc.pdf";');
+        expect(pkg.html).toContain('var clickTag2 = "https://www.fda.gov/medwatch";');
+        expect(pkg.html).toContain("window.open(window.clickTag2, '_blank')");
+    });
+
+    it('exports the standalone PI strip as its own layer with its own z-index', async () => {
+        const pkg = await buildPackage([
+            bannerElement({
+                id: 'pi-1',
+                type: 'piStrip',
+                x: 0,
+                y: 140,
+                width: 300,
+                height: 20,
+                text: 'Prescribing Information',
+                linkUrl: 'https://pi.com/doc.pdf',
+                piPaddingLeft: 12,
+            }),
+            bannerElement({ id: 'isi-1', type: 'isiScroll', x: 0, y: 160, width: 300, height: 88, isiText: '<p>Safety</p>' }),
+        ]);
+
+        // Its own div, positioned and stacked like any other element.
+        expect(pkg.html).toContain('<div id="el-pi-1" class="pi-strip">');
+        expect(pkg.css).toContain('#el-pi-1 { position: absolute; left: 0px; top: 140px; width: 300px; height: 20px; z-index: 0; }');
+        expect(pkg.css).toContain('#el-isi-1 { position: absolute; left: 0px; top: 160px;');
+        // Its own padding, independent of the ISI tray padding.
+        expect(pkg.css).toContain('padding: 4px 4px 4px 12px;');
+        expect(pkg.html).toContain('window.open(window.clickTag1');
     });
 });
 
+describe('buildBannerPackage ISI section links', () => {
+    const isiElement = (overrides: Partial<DesignElement> = {}): DesignElement => ({
+        id: 'isi-1',
+        type: 'isiScroll',
+        x: 0,
+        y: 162,
+        width: 300,
+        height: 88,
+        isiText:
+            '<p>Report at <a href="https://www.fda.gov/medwatch" target="_blank">www.fda.gov/medwatch</a></p>' +
+            '<p><a href="https://rxmenarinistemline.com/ORSERDU_PI.pdf" target="_blank">Prescribing Information</a></p>',
+        ...overrides,
+    });
+
+    it('wires every ISI rich-text anchor to a click tag variable', async () => {
+        const pkg = await buildPackage([isiElement()]);
+
+        // Section links go through clickTag1 / clickTag2 instead of raw hrefs.
+        expect(pkg.html).toContain("window.open(window.clickTag1, '_blank')");
+        expect(pkg.html).toContain("window.open(window.clickTag2, '_blank')");
+        expect(pkg.html).toContain('var clickTag1 = "https://www.fda.gov/medwatch";');
+        expect(pkg.html).toContain('var clickTag2 = "https://rxmenarinistemline.com/ORSERDU_PI.pdf";');
+        // The hard-coded destinations are gone from the clickable markup.
+        expect(pkg.html).not.toContain('<a href="https://www.fda.gov/medwatch"');
+    });
+
+    it('keeps the anchor text and inline styling of the ISI link', async () => {
+        const pkg = await buildPackage([
+            isiElement({
+                isiText: '<p><a href="https://www.fda.gov/medwatch" style="color:#000000;word-break: break-all;">www.fda.gov/medwatch</a></p>',
+            }),
+        ]);
+
+        expect(pkg.html).toContain('www.fda.gov/medwatch</a>');
+        expect(pkg.html).toContain('style="color:#000000;word-break: break-all;"');
+    });
+
+    it('shares one click tag between the PI strip and the ISI link to the same document', async () => {
+        const pkg = await buildPackage([
+            isiElement({
+                isiText: '<p><a href="https://pi.com/doc.pdf">Prescribing Information</a></p>',
+                isiHeaderText: 'Prescribing Information',
+                isiHeaderLink: 'https://pi.com/doc.pdf',
+            }),
+        ]);
+
+        // Only two distinct destinations -> two variables, both reused.
+        expect(pkg.html).toContain('var clickTag1 = "https://pi.com/doc.pdf";');
+        expect(pkg.html).not.toContain('var clickTag2 = "https://pi.com/doc.pdf"');
+    });
+
+    it('never emits a script URL from an ISI anchor', async () => {
+        const pkg = await buildPackage([
+            isiElement({ isiText: '<p><a href="javascript:alert(1)">bad</a></p>' }),
+        ]);
+
+        expect(pkg.html).not.toContain('window.open(window.clickTag1');
+        expect(pkg.html).toContain('    var clickTag1 = "#";');
+    });
+});
+
+describe('buildBannerPackage end behaviour (stay / disappear)', () => {
+    it('animates an ISI tray instead of exporting it static', async () => {
+        const pkg = await buildPackage([
+            bannerElement({
+                id: 'isi-1',
+                type: 'isiScroll',
+                isiText: '<p>Safety</p>',
+                animation: 'fadeIn',
+                animationDuration: 1,
+            }),
+        ]);
+
+        // Regression: the ISI branch used to `continue` before the animation
+        // pipeline, so its entrance never reached the exported banner.
+        expect(pkg.css).toContain('@keyframes anim-el-isi-1');
+        expect(pkg.js).toContain('anim-el-isi-1');
+    });
+
+    it('exports the end-fade of a "Disappear" layer as a keyframe ending at opacity 0', async () => {
+        const pkg = await buildPackage([bannerElement({ id: 'hide-1', animation: 'fadeIn', animationDuration: 1, endBehavior: 'hide' })]);
+
+        expect(pkg.css).toContain('@keyframes anim-el-hide-1');
+        expect(pkg.css).toMatch(/100\.00% \{ opacity: 0;/);
+    });
+
+    it('keeps a "Stay on banner" layer visible with no end-fade keyframe', async () => {
+        const pkg = await buildPackage([bannerElement({ id: 'stay-1', animation: 'fadeIn', animationDuration: 1, endBehavior: 'stay' })]);
+
+        const keyframes = pkg.css.slice(pkg.css.indexOf('@keyframes anim-el-stay-1'));
+        expect(keyframes).toContain('@keyframes anim-el-stay-1');
+        // It fades in and then holds; it never reaches opacity 0.
+        expect(keyframes).not.toMatch(/100\.00% \{ opacity: 0;/);
+    });
+
+    it('restarts the exported timeline on every cycle for a looping banner', async () => {
+        const pkg = await buildPackage(
+            [bannerElement({ id: 'stay-1', animation: 'fadeIn', animationDuration: 1, endBehavior: 'stay' })],
+            { loop: true },
+        );
+
+        expect(pkg.js).toContain('window.setInterval(runAnimationTimeline, 5000);');
+    });
+});
 describe('buildBannerPackage banner click tag', () => {
     it('declares the standard clickTag in the head and wires the whole banner when enabled', async () => {
         const pkg = await buildPackage([bannerElement()], {
@@ -168,7 +294,7 @@ describe('buildBannerPackage banner click tag', () => {
             clickTagUrl: 'javascript:alert(1)',
         });
 
-        expect(pkg.html).toContain('    var clickTag = "#";');
+        expect(pkg.html).toContain('var clickTag = "#";');
         expect(pkg.html).not.toContain('javascript:alert(1)');
         expect(pkg.js).not.toContain('javascript:alert(1)');
     });

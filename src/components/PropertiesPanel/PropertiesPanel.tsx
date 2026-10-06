@@ -1,8 +1,17 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useDesignStore, CLICK_TAG_NAMES, type LinkClickTag } from '../../store/designStore';
 import { EASINGS } from '../../utils/keyframes';
 import { getAnimationGroupsForTab, animationLabel } from '../../utils/animations';
-import { buildClickTagPlanForElements, collectLinkSources, isSafeLinkUrl, linkKey, normalizeLinkUrl } from '../../utils/bannerExport';
+import {
+    buildClickTagPlanForElements,
+    collectIsiTextAnchors,
+    collectLinkSources,
+    getIsiBulletSpacing,
+    getPiStripStyle,
+    isSafeLinkUrl,
+    linkKey,
+    normalizeLinkUrl,
+} from '../../utils/bannerExport';
 
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
@@ -102,9 +111,54 @@ export const PropertiesPanel: React.FC = () => {
     // Banner-level click tag, resolved exactly like the exporter resolves it.
     const bannerClickTagActive = useAsClickTag && isSafeLinkUrl(normalizeLinkUrl(clickTagUrl));
     const bannerClickTagUrl = bannerClickTagActive ? normalizeLinkUrl(clickTagUrl) : '';
-    const linkAssignment = (elementId: string, slot: 'box' | 'isiHeader' | 'isiLogo') =>
+    const linkAssignment = (elementId: string, slot: 'box' | 'isiLogo') =>
         linkPlan.byElementSlot[linkKey(elementId, slot)];
     const boxAssignment = selectedElement ? linkAssignment(selectedElement.id, 'box') : undefined;
+
+    // Resolved bullet spacing for the read-out of the ISI bullet controls.
+    // Read through the exporter's helper so the numbers shown here are exactly
+    // the ones written into the downloaded banner.
+    const bulletSpacing = getIsiBulletSpacing(selectedElement ?? {});
+
+    // Resolved box for the standalone PI strip element, read through the
+    // exporter's helper so the placeholders match the exported CSS exactly.
+    const piStrip = getPiStripStyle(selectedElement ?? {});
+
+    // Anchors inside the selected ISI element's rich text, so each one can be
+    // given its own click tag. Parsed by the same function the exporter uses, so
+    // the numbering in this list always matches the exported anchors.
+    const isiAnchors = useMemo(
+        () => (selectedElement?.type === 'isiScroll' ? collectIsiTextAnchors(selectedElement.isiText) : []),
+        [selectedElement],
+    );
+
+    /**
+     * Binds one ISI section link to a click tag. `undefined` clears the entry so
+     * the exporter falls back to auto-assignment, and an emptied map is removed
+     * entirely rather than persisted as `{}`.
+     */
+    const setIsiAnchorClickTag = (index: number, value: LinkClickTag | undefined) => {
+        if (!selectedElement) return;
+        const next: Record<number, LinkClickTag> = { ...(selectedElement.isiTextClickTags ?? {}) };
+        if (value === undefined) delete next[index];
+        else next[index] = value;
+        updateElement(selectedElement.id, {
+            isiTextClickTags: Object.keys(next).length > 0 ? next : undefined,
+        });
+    };
+
+    // Per-side padding inputs for the standalone PI strip. `pad` is the matching
+    // key on `piStrip`, used to show the effective default when a field is empty.
+    const PI_PAD_FIELDS: Array<{
+        key: 'piPaddingTop' | 'piPaddingRight' | 'piPaddingBottom' | 'piPaddingLeft';
+        pad: 'paddingTop' | 'paddingRight' | 'paddingBottom' | 'paddingLeft';
+        label: string;
+    }> = [
+        { key: 'piPaddingTop', pad: 'paddingTop', label: 'Pad Top' },
+        { key: 'piPaddingRight', pad: 'paddingRight', label: 'Pad Right' },
+        { key: 'piPaddingBottom', pad: 'paddingBottom', label: 'Pad Bottom' },
+        { key: 'piPaddingLeft', pad: 'paddingLeft', label: 'Pad Left' },
+    ];
 
     const selectedKf =
         selectedElement && selectedKeyframe && selectedKeyframe.elementId === selectedElement.id
@@ -364,7 +418,7 @@ export const PropertiesPanel: React.FC = () => {
                                     const assignment = linkPlan.byElementSlot[linkKey(source.elementId, source.slot)];
                                     const slotLabel = source.slot === 'box'
                                         ? 'element'
-                                        : source.slot === 'isiHeader' ? 'ISI header' : 'ISI logo';
+                                        : source.slot === 'isiLogo' ? 'ISI logo' : 'ISI section link';
                                     return (
                                         <li key={linkKey(source.elementId, source.slot)}>
                                             <button
@@ -1152,6 +1206,118 @@ return (
 
            
 
+                {/* Standalone PI strip element: its own layer, its own z-order. */}
+                {(selectedElement.type as string) === 'piStrip' && (
+                    <div className="space-y-3 border-t border-[#232330] pt-4 pb-6">
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">PI Strip</label>
+                            <span className="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">Separate Layer</span>
+                        </div>
+
+                        <div>
+                            <label className="text-[11px] text-gray-400 mb-1 block">Strip Text</label>
+                            <input
+                                type="text"
+                                value={selectedElement.text || ''}
+                                onChange={(e) => handleChange('text', e.target.value)}
+                                placeholder="Prescribing Information"
+                                className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="text-[11px] text-gray-400 mb-1 block">Link URL</label>
+                            <input
+                                type="text"
+                                value={selectedElement.linkUrl || ''}
+                                onChange={(e) => handleChange('linkUrl', e.target.value || undefined)}
+                                placeholder="https://.../prescribing_information.pdf"
+                                className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="text-[11px] text-gray-400 mb-1 block">Click Tag</label>
+                            <ClickTagSelect
+                                value={selectedElement.linkClickTag}
+                                onChange={(value) => handleChange('linkClickTag', value)}
+                            />
+                            {boxAssignment?.name && (
+                                <p className="text-[10px] text-emerald-400 mt-1 font-mono">
+                                    &rarr; window.{boxAssignment.name}
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                            <div>
+                                <label className="text-[11px] text-gray-400 mb-1 block">Bar BG</label>
+                                <input
+                                    type="color"
+                                    value={selectedElement.piBackground || '#E8FFF9'}
+                                    onChange={(e) => handleChange('piBackground', e.target.value)}
+                                    className="w-6 h-6 rounded cursor-pointer border border-[#232330] shadow-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[11px] text-gray-400 mb-1 block">Text</label>
+                                <input
+                                    type="color"
+                                    value={selectedElement.fill || '#000000'}
+                                    onChange={(e) => handleChange('fill', e.target.value)}
+                                    className="w-6 h-6 rounded cursor-pointer border border-[#232330] shadow-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[11px] text-gray-400 mb-1 block">Font Size</label>
+                                <input
+                                    type="number"
+                                    value={selectedElement.fontSize || 10}
+                                    onChange={(e) => handleChange('fontSize', Number(e.target.value))}
+                                    className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[11px] text-gray-400 mb-1 block">Align</label>
+                                <select
+                                    value={selectedElement.piAlign || 'left'}
+                                    onChange={(e) => handleChange('piAlign', e.target.value)}
+                                    className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                >
+                                    <option value="left">Left</option>
+                                    <option value="center">Center</option>
+                                    <option value="right">Right</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-bold tracking-tight mb-1 block">Padding</label>
+                            <div className="grid grid-cols-4 gap-2">
+                                {PI_PAD_FIELDS.map((field) => (
+                                    <div key={field.key}>
+                                        <label className="text-[10px] text-gray-500 mb-1 block">{field.label}</label>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            placeholder={String(piStrip[field.pad])}
+                                            value={selectedElement[field.key] ?? ''}
+                                            onChange={(e) => handleChange(field.key, e.target.value === '' ? undefined : Number(e.target.value))}
+                                            className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <p className="text-[10px] text-gray-500 leading-relaxed">
+                            This strip is an ordinary layer: drag it, resize it, or use the Layers panel to move it
+                            above or below other elements. Its padding is its own and is never affected by the ISI
+                            tray padding.
+                        </p>
+                    </div>
+                )}
+
                 {/* HTML Content Editor */}
                 {(selectedElement.type as string) === 'html' && (
                     <div className="space-y-4 border-t border-[#232330] pt-4 pb-6">
@@ -1243,79 +1409,74 @@ return (
                                     className="w-full border border-[#2a2a35] rounded-lg px-3 py-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500/30 focus:outline-none resize-none bg-[#1a1a21] transition-all font-mono"
                                     placeholder="Enter ISI text content..."
                                 />
-                            </div>
 
-                            {/* Traditional Header Bar ("Prescribing Information" strip) */}
-                            <div className="space-y-2 border-t border-[#232330] pt-3">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-[10px] text-gray-400 uppercase font-bold tracking-tight">Header Bar</label>
-                                    <span className="bg-emerald-50 text-emerald-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">PI Link Strip</span>
-                                </div>
-                                <div>
-                                    <label className="text-[11px] text-gray-400 mb-1 block">Header Text</label>
-                                    <input
-                                        type="text"
-                                        value={selectedElement.isiHeaderText || ''}
-                                        onChange={(e) => handleChange('isiHeaderText', e.target.value || undefined)}
-                                        placeholder="Prescribing Information"
-                                        className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] text-gray-400 mb-1 block">Link URL</label>
-                                    <input
-                                        type="text"
-                                        value={selectedElement.isiHeaderLink || ''}
-                                        onChange={(e) => handleChange('isiHeaderLink', e.target.value || undefined)}
-                                        placeholder="https://.../prescribing_information.pdf"
-                                        className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] text-gray-400 mb-1 block">Click Tag</label>
-                                    <ClickTagSelect
-                                        value={selectedElement.isiHeaderClickTag}
-                                        onChange={(value) => handleChange('isiHeaderClickTag', value)}
-                                    />
-                                    {linkAssignment(selectedElement.id, 'isiHeader')?.name && (
-                                        <p className="text-[10px] text-emerald-400 mt-1 font-mono">
-                                            → window.{linkAssignment(selectedElement.id, 'isiHeader')!.name}
+                                {/* Click tags for the links INSIDE the ISI text (medwatch,
+                                    Prescribing Information, ...). Each anchor gets its own
+                                    variable; unset entries fall back to auto-assignment. */}
+                                <div className="pt-2 border-t border-[#1a1a21]">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="text-[10px] text-gray-400 uppercase font-bold tracking-tight">
+                                            ISI Section Links
+                                        </label>
+                                        <span className="text-[10px] text-gray-500">
+                                            {isiAnchors.length} link{isiAnchors.length === 1 ? '' : 's'}
+                                        </span>
+                                    </div>
+
+                                    {isiAnchors.length === 0 ? (
+                                        <p className="text-[10px] text-gray-500">
+                                            No links found in the ISI text. Add an <span className="font-mono">&lt;a href="..."&gt;</span> to make it clickable.
                                         </p>
+                                    ) : (
+                                        <div className="space-y-1.5">
+                                            {isiAnchors.map((anchor) => {
+                                                const anchorLink = linkPlan.byElementSlot[linkKey(selectedElement.id, 'isiText', anchor.index)];
+                                                const anchorLabel = anchor.text || anchor.url || 'link';
+                                                return (
+                                                    <div key={anchor.index} className="rounded-md border border-[#232330] bg-[#15151c] px-2 py-1.5">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-[11px] text-gray-200 truncate" title={anchor.url || 'No usable URL'}>
+                                                                {anchorLabel}
+                                                            </span>
+                                                            <span className="text-[9px] text-gray-500 font-mono shrink-0">
+                                                                #{anchor.index + 1}
+                                                            </span>
+                                                        </div>
+                                                        <div className="mt-1">
+                                                            <ClickTagSelect
+                                                                value={selectedElement.isiTextClickTags?.[anchor.index]}
+                                                                onChange={(value) => setIsiAnchorClickTag(anchor.index, value)}
+                                                            />
+                                                            {anchorLink?.name ? (
+                                                                <p className="text-[10px] text-emerald-400 mt-0.5 font-mono">
+                                                                    &rarr; window.{anchorLink.name}
+                                                                </p>
+                                                            ) : (
+                                                                <p className="text-[10px] text-gray-500 mt-0.5">
+                                                                    plain href (no variable free)
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
                                     )}
                                 </div>
-                                <div className="grid grid-cols-3 gap-2">
-                                    <div>
-                                        <label className="text-[11px] text-gray-400 mb-1 block">Bar BG</label>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="color"
-                                                value={selectedElement.isiHeaderBackground || '#E8FFF9'}
-                                                onChange={(e) => handleChange('isiHeaderBackground', e.target.value)}
-                                                className="w-6 h-6 rounded cursor-pointer border border-[#232330] shadow-sm"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-[11px] text-gray-400 mb-1 block">Text</label>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="color"
-                                                value={selectedElement.isiHeaderColor || '#000000'}
-                                                onChange={(e) => handleChange('isiHeaderColor', e.target.value)}
-                                                className="w-6 h-6 rounded cursor-pointer border border-[#232330] shadow-sm"
-                                            />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-[11px] text-gray-400 mb-1 block">Height</label>
-                                        <input
-                                            type="number"
-                                            value={selectedElement.isiHeaderHeight || 20}
-                                            onChange={(e) => handleChange('isiHeaderHeight', Number(e.target.value))}
-                                            className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                        />
-                                    </div>
+                            </div>
+
+                            {/* The PI strip is no longer part of the ISI tray. It is its own layer now,
+                                so it can be placed and z-ordered independently. */}
+                            <div className="space-y-2 border-t border-[#232330] pt-3">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] text-gray-400 uppercase font-bold tracking-tight">PI Strip</label>
+                                    <span className="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">Separate Layer</span>
                                 </div>
+                                <p className="text-[10px] text-gray-500 leading-relaxed">
+                                    The Prescribing Information strip is its own element, listed in the Layers
+                                    panel. Select it there to change its text, link, click tag, colours and
+                                    padding, or add another one from the toolbar.
+                                </p>
                             </div>
 
                             {/* Branding Section */}
@@ -1772,6 +1933,65 @@ return (
                                             <option value="Impact, sans-serif">Impact</option>
                                             <option value="'Comic Sans MS', cursive">Comic Sans MS</option>
                                         </select>
+                                    </div>
+                                </div>
+
+                                {/* Bullet list spacing. Exported by the same helper that
+                                    styles the canvas overlay, so the preview and the
+                                    downloaded banner always match. */}
+                                <div className="mt-2 pt-2 border-t border-[#1a1a21]">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="text-[11px] text-gray-400">Bullet Spacing</label>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (!selectedElement) return;
+                                                updateElement(selectedElement.id, {
+                                                    isiBulletSpacing: undefined,
+                                                    isiBulletIndent: undefined,
+                                                    isiBulletGap: undefined,
+                                                });
+                                            }}
+                                            title="Reset bullet spacing to the default"
+                                            className="text-[10px] text-gray-500 hover:text-red-500 transition"
+                                        >
+                                            Reset
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div>
+                                            <label className="text-[10px] text-gray-500 mb-1 block" title="Vertical gap between bullet items">Gap</label>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                step={1}
+                                                value={bulletSpacing.spacing}
+                                                onChange={(e) => handleChange('isiBulletSpacing', e.target.value === '' ? undefined : Number(e.target.value))}
+                                                className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] text-gray-500 mb-1 block" title="Left indent of the bullet list">Indent</label>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                step={1}
+                                                value={bulletSpacing.indent}
+                                                onChange={(e) => handleChange('isiBulletIndent', e.target.value === '' ? undefined : Number(e.target.value))}
+                                                className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] text-gray-500 mb-1 block" title="Gap between the bullet glyph and the text">Bullet Gap</label>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                step={1}
+                                                value={bulletSpacing.gap}
+                                                onChange={(e) => handleChange('isiBulletGap', e.target.value === '' ? undefined : Number(e.target.value))}
+                                                className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             </div>

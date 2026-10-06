@@ -1,5 +1,6 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import type { DesignElement } from '../../store/designStore';
+import { buildIsiHeaderCss, getIsiBulletSpacing, getIsiHeaderStripStyle } from '../../utils/bannerExport';
 
 interface ISIOverlayProps {
   element: DesignElement;
@@ -148,6 +149,36 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
   // Apply margin to position
   const effectiveX = (element.x || 0) + marginLeft;
   const effectiveY = (element.y || 0) + marginTop;
+
+  // Designer-controlled bullet spacing, scoped to this tray only.
+  //
+  // Scoped by ID, not by class, and that detail is load-bearing. The canvas
+  // stylesheet reaches the same bullet through
+  // `.isi-rich-overlay .isi .mb-7` — three classes, specificity 30 — and it is
+  // declared `!important`. A class-based scope here (e.g.
+  // `.isi-bullets-x .isi ul li`, specificity 22) would LOSE to it, so the Gap
+  // control would silently do nothing in the editor while still working in the
+  // exported banner. An ID scores 100 and wins, exactly like the exporter's
+  // `#el-<id> .isi ul li`.
+  const bulletScopeId = `isi-overlay-${(element.id || 'x').replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const bulletCss = useMemo(() => {
+    const { spacing, indent, itemIndent } = getIsiBulletSpacing(element);
+    return (
+      `#${bulletScopeId} .isi ul { padding-left: ${indent}px !important; } ` +
+      `#${bulletScopeId} .isi ul li { margin-bottom: ${spacing}px !important; margin-left: 0; ` +
+      `text-indent: -${itemIndent}px; padding-left: ${itemIndent}px; } ` +
+      `#${bulletScopeId} .isi ul li::before { left: -${itemIndent}px; }`
+    );
+  }, [element, bulletScopeId]);
+
+  // The PI strip's own box (padding / margin / height). Deliberately resolved
+  // from the header fields ONLY — the tray's isiPadding above applies to the
+  // scrolling body, so the strip stays a separate, end-to-end band.
+  const headerStrip = useMemo(() => getIsiHeaderStripStyle(element), [element]);
+  const headerCss = useMemo(
+    () => buildIsiHeaderCss(`#${bulletScopeId}`, element).join(' '),
+    [element, bulletScopeId],
+  );
 
   // Measure the scrollable content height (drives the scrollbar indicator and
   // maxScroll math). ResizeObserver catches async image/logo loading too.
@@ -302,6 +333,8 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
     letterSpacing: `${element.isiLetterSpacing || 0}px`,
     border: `${element.isiBorderWidth || 0}px solid ${element.isiBorderColor || 'transparent'}`,
     overflow: 'hidden',
+    // Bullet spacing is driven by a scoped <style> tag (rendered just below)
+    // so the preview and the exported banner share identical bullet metrics.
     // SEPARATE LAYERS: the ISI tray is its own layer on top of the banner.
     // In edit mode it is semi-transparent with a dashed outline so banner
     // elements behind/added later stay visible & editable. During preview it
@@ -319,7 +352,9 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
   const indicatorColor = element.isiScrollbarTrackColor || '#f2f2f2';
 
   const headerText = element.isiHeaderText;
-  const headerHeight = headerText ? element.isiHeaderHeight || 20 : 0;
+  // The strip's own margins count toward the space it consumes, so the body
+  // starts below the strip AND its gaps.
+  const headerHeight = headerText ? headerStrip.totalHeight : 0;
   const bodyHeight = Math.max(0, (element.height || 200) - headerHeight);
   const maxScroll = contentHeight - bodyHeight;
   const logoWidth = element.isiLogoWidth || 187;
@@ -328,21 +363,28 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
     <div
       ref={containerRef}
       style={style}
+      id={bulletScopeId}
       className="isi-rich-overlay"
       data-isi-hovered={isHovered ? 'true' : undefined}
       data-isi-hold={holdDurationS}
     >
-      {/* Traditional patient_link header strip */}
+      {/* Designer-controlled bullet spacing. Scoped by the tray's generated ID and
+          built from the same helper the exporter uses, so the canvas preview
+          matches the downloaded banner exactly. */}
+      <style>{bulletCss + ' ' + headerCss}</style>
+
+      {/* Traditional patient_link header strip. Geometry (padding / margin /
+          height) comes from the shared exporter rules above, so this strip keeps
+          its own box and is never moved by the ISI tray padding, which applies
+          only to the scrolling body. */}
       {headerText && (
         <div className="patient_link">
           <p
             style={{
               fontSize: 10,
-              padding: '3px 10px 5px',
               backgroundColor: element.isiHeaderBackground || '#E8FFF9',
               fontFamily: 'Arial, Helvetica, sans-serif',
               fontWeight: 'bold',
-              margin: '5px 0 10px 0',
             }}
           >
             <a

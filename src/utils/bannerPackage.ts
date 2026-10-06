@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import type { DesignElement } from '../store/designStore';
 import { getElementBaseState, getElementKeyframes } from './keyframes';
 import {
+    applyIsiTextClickTags,
     buildAnimationStartEvent,
     buildBannerClickTagDeclaration,
     buildBannerClickTagEvent,
@@ -9,13 +10,17 @@ import {
     buildClickTagDeclarations,
     buildClickTagPlan,
     buildElementAnimationCss,
+    buildIsiBulletCss,
     buildIsiScrollEvent,
+    getPiStripStyle,
     buildLinkAttributes,
     buildMainJs,
     buildVideoAutoplayEvent,
+    collectIsiTextAnchors,
     collectLinkSources,
     linkKey,
     type BannerClickTag,
+    type ElementLinkAssignment,
 } from './bannerExport';
 
 /**
@@ -119,6 +124,7 @@ export async function buildBannerPackage({
     canvasBackground,
     canvasBackgroundImage,
     totalDuration,
+    loop = false,
     elements,
     useAsClickTag = false,
     clickTagUrl,
@@ -199,26 +205,30 @@ export async function buildBannerPackage({
             const bgCol = el.isiBackgroundColor || '#ffffff';
             const scrollCol = el.isiScrollbarColor || '#006937';
             const indicatorCol = el.isiScrollbarTrackColor || '#f2f2f2';
-            const headerBg = el.isiHeaderBackground || '#E8FFF9';
-            const headerCol = el.isiHeaderColor || '#000000';
-            const headerHeight = el.isiHeaderText ? (el.isiHeaderHeight || 20) : 0;
-            const bodyHeight = Math.max(0, (el.height || 200) - headerHeight);
+            // The PI strip is its own element now, so the tray is nothing but the
+            // scrolling text and always gets the element's full height.
+            const bodyHeight = el.height || 200;
             const logoWidth = el.isiLogoWidth || 187;
 
             cssLines.push(
                 '#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; background: ' + bgCol + '; color: ' + fontCol + '; font-size: ' + (el.fontSize || 12) + 'px; font-family: ' + (el.isiFontFamily || 'Arial, Helvetica, sans-serif') + '; font-weight: ' + (el.isiFontWeight || 'normal') + '; font-style: ' + (el.isiFontStyle || 'normal') + '; line-height: ' + (el.isiLineHeight || 1.4) + '; letter-spacing: ' + (el.isiLetterSpacing || 0) + 'px; border: ' + (el.isiBorderWidth || 0) + 'px solid ' + (el.isiBorderColor || 'transparent') + '; }',
-                '#' + id + ' .patient_link p { background-color: ' + headerBg + '; }',
-                '#' + id + ' .patient_link a { color: ' + headerCol + '; }',
                 '#' + id + ' .isi_wrapper { height: ' + bodyHeight + 'px; }',
                 '#' + id + ' .iScrollVerticalScrollbar { background-color: ' + scrollCol + '; border-top: 1px solid ' + scrollCol + '; border-bottom: 1px solid ' + scrollCol + '; right: ' + (el.isiScrollbarMarginRight ?? 3) + 'px !important; width: ' + (el.isiScrollbarWidth ?? 8) + 'px !important; height: ' + (el.isiScrollbarHeight ?? 66) + '% !important; margin-top: ' + (el.isiScrollbarMarginTop ?? 5) + 'px !important; padding: ' + (el.isiScrollbarPadding ?? 0) + 'px !important; }',
                 '#' + id + ' .iScrollIndicator { background: ' + indicatorCol + '; }',
                 '#' + id + ' .isi .isi-logo { width: ' + logoWidth + 'px; }',
+                // Designer-controlled bullet spacing (gap / indent / hanging indent).
+                ...buildIsiBulletCss(id, el),
             );
 
-            // ISI sub-links resolved against the same clickTag variables, so the
-            // PI strip / logo can be labelled with a click tag like any hotspot.
-            const isiHeaderLink = linkPlan.byElementSlot[linkKey(el.id, 'isiHeader')];
+            // ISI sub-links resolved against the same clickTag variables, so the logo can
+            // be labelled with a click tag like any hotspot.
             const isiLogoLink = linkPlan.byElementSlot[linkKey(el.id, 'isiLogo')];
+            // Anchors of the ISI rich text, keyed by their position in the HTML.
+            const isiTextLinks: Record<number, ElementLinkAssignment> = {};
+            for (const anchor of collectIsiTextAnchors(el.isiText)) {
+                const assignment = linkPlan.byElementSlot[linkKey(el.id, 'isiText', anchor.index)];
+                if (assignment) isiTextLinks[anchor.index] = assignment;
+            }
             const logoImgTag = (className: string, extraStyle: string) =>
                 '<img ' +
                 (className ? 'class="' + className + '" ' : '') +
@@ -238,14 +248,15 @@ export async function buildBannerPackage({
             if (el.isiLogoSrc && (el.isiLogoPosition || 'bottom') === 'top') {
                 inner += logoMarkup('', ' display:block; margin-bottom:10px;');
             }
-            inner += '<div>' + (el.isiText || '') + '</div>';
+            // Every anchor of the ISI rich text (medwatch, Prescribing
+            // Information, …) is resolved against the click-tag variables, so
+            // the ISI section links click through like the rest of the banner
+            // instead of shipping as hard-coded hrefs.
+            inner += '<div>' + applyIsiTextClickTags(el.isiText || '', isiTextLinks) + '</div>';
             if (el.isiLogoSrc && (el.isiLogoPosition || 'bottom') !== 'top') {
                 inner += logoMarkup('mb-10 isi-logo', '');
             }
 
-            const headerMarkup = el.isiHeaderText
-                ? '        <div class="patient_link">\n          <p style="font-size:10px;padding: 3px 5px 5px 11px;background-color: ' + headerBg + ';font-family: Arial, Helvetica, sans-serif;font-weight: bold;margin: 5px 0 10px 0;">\n            <a ' + (isiHeaderLink ? buildLinkAttributes(isiHeaderLink) : 'href="' + (el.isiHeaderLink || '#') + '" target="_blank"') + ' style="color:' + headerCol + ';text-decoration:underline;text-underline-offset: 1px;font-weight:bold;">' + (el.isiHeaderText) + '</a>\n          </p>\n        </div>'
-                : '';
             const isiElemId = 'isi-content-' + el.id;
             const isiIndicatorId = 'isi-indicator-' + el.id;
 
@@ -267,17 +278,33 @@ export async function buildBannerPackage({
 
             htmlBodyParts.push(
                 '          <div id="' + id + '" class="isi-main">',
-                headerMarkup,
                 '          <div class="isi_wrapper">',
                 '            <div class="isi" id="' + isiElemId + '">' + inner + '</div>',
                 '            <div class="iScrollVerticalScrollbar" style="overflow: hidden;"><div class="iScrollIndicator" id="' + isiIndicatorId + '"></div></div>',
                 '          </div>',
                 '          </div>',
             );
-            continue;
-        }
-
-        if (el.type === 'rect') {
+            // No `continue` here: the ISI tray still runs the shared animation
+            // pipeline below, so its entrance / exit and the "Disappear" end
+            // behaviour are exported like any other layer.
+        } else if (el.type === 'piStrip') {
+            // The PI strip is an ordinary layer: it gets its own box, its own
+            // z-index (its position in the layer order) and its own padding.
+            const s = getPiStripStyle(el);
+            const stripLink = linkPlan.byElementSlot[linkKey(el.id, 'box')];
+            htmlBodyParts.push(
+                '          <div id="' + id + '" class="pi-strip">' +
+                (stripLink ? '<a ' + buildLinkAttributes(stripLink) + '>' : '') +
+                (el.text || '') +
+                (stripLink ? '</a>' : '') +
+                '</div>',
+            );
+            cssLines.push(
+                '#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 20) + 'px; z-index: ' + z + '; }',
+                '#' + id + ' .pi-strip { box-sizing: border-box; width: 100%; height: 100%; display: flex; align-items: center; justify-content: ' + s.align + '; background: ' + s.background + '; border-radius: ' + s.borderRadius + 'px; padding: ' + s.paddingTop + 'px ' + s.paddingRight + 'px ' + s.paddingBottom + 'px ' + s.paddingLeft + 'px; overflow: hidden; }',
+                '#' + id + ' .pi-strip a { color: ' + (el.fill || '#000000') + '; font-size: ' + (el.fontSize || 10) + 'px; font-family: Arial, Helvetica, sans-serif; font-weight: bold; text-decoration: underline; text-underline-offset: 1px; }',
+            );
+        } else if (el.type === 'rect') {
             htmlBodyParts.push('          <div id="' + id + '" class="element"></div>');
             cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: ' + (el.cornerRadius || 0) + 'px; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' }');
         } else if (el.type === 'circle') {
@@ -386,7 +413,10 @@ export async function buildBannerPackage({
             '</html>',
         ].join('\n'),
         css: cssLines.join('\n'),
-        js: buildMainJs(timelineEvents, linkPlan.declarations),
+        js: buildMainJs(timelineEvents, linkPlan.declarations, {
+            loop,
+            totalDurationSeconds: totalDuration,
+        }),
         images,
     };
 }

@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
+    applyIsiTextClickTags,
     buildAnimationStartEvent,
     buildBannerClickTagDeclaration,
     buildBannerClickTagEvent,
@@ -16,6 +17,7 @@ import {
     buildLinkAttributes,
     buildMainJs,
     buildVideoAutoplayEvent,
+    collectIsiTextAnchors,
     collectLinkSources,
     escapeHtmlAttribute,
     gsapEaseToCss,
@@ -284,6 +286,16 @@ describe('buildAnimationStartEvent', () => {
         expect(startEvent({ loop: true })).toContain('= "3000ms linear infinite anim-el-1";');
     });
 
+    it('re-attaches the animation from its first frame (loop restarts the banner)', () => {
+        const event = startEvent();
+
+        // Re-assigning an identical shorthand is a no-op in browsers, so the
+        // previous animation must be cleared and layout flushed first.
+        expect(event).toContain('el.style.animation = "none";');
+        expect(event).toContain('void el.offsetWidth;');
+        expect(event.indexOf('style.animation = "none"')).toBeLessThan(event.lastIndexOf('style.animation ='));
+    });
+
     it('stays parseable when the id contains quotes', () => {
         const event = startEvent({ id: 'el-"quoted"' });
         expect(() => checkTimeline([event])).not.toThrow();
@@ -426,6 +438,31 @@ describe('buildMainJs', () => {
 
         expect(() => compile(mainJs)).not.toThrow();
         expect(mainJs).toContain('var animationTimeline = [\n];');
+    });
+
+    it('runs the timeline once when the banner does not loop', () => {
+        const mainJs = buildMainJs([], [], { loop: false, totalDurationSeconds: 10 });
+
+        expect(() => compile(mainJs)).not.toThrow();
+        expect(mainJs).not.toContain('setInterval');
+    });
+
+    it('restarts the timeline on every cycle for a looping banner', () => {
+        const mainJs = buildMainJs(
+            [buildAnimationStartEvent({ id: 'el-1', startDelayMs: 0, durationMs: 10000, loop: false, animationName: 'anim-el-1' })],
+            [{ name: 'clickTag1', url: 'https://example.com/' }],
+            { loop: true, totalDurationSeconds: 10 },
+        );
+
+        expect(() => compile(mainJs)).not.toThrow();
+        expect(mainJs).toContain('function runAnimationTimeline() {');
+        expect(mainJs).toContain('window.setInterval(runAnimationTimeline, 10000);');
+    });
+
+    it('never loops when the master duration is unknown', () => {
+        const mainJs = buildMainJs([], [], { loop: true, totalDurationSeconds: 0 });
+
+        expect(mainJs).not.toContain('setInterval');
     });
 
     it('runs every queued action once the window has loaded (simulated)', () => {
@@ -611,28 +648,182 @@ describe('collectLinkSources', () => {
         expect(collectLinkSources([linked({ linkUrl: 'javascript:alert(1)' })])).toEqual([]);
     });
 
-    it('never gives the ISI tray a box hotspot, but keeps its strip and logo links', () => {
+    it('never gives the ISI tray a box hotspot, but keeps its logo and section links', () => {
         const sources = collectLinkSources([
             linked({
                 id: 'isi-1',
                 type: 'isiScroll',
                 linkUrl: 'https://ignore-me.com/',
-                isiHeaderText: 'Prescribing Information',
-                isiHeaderLink: 'https://pi.com/doc.pdf',
+                isiText: '<a href="https://pi.com/doc.pdf">Prescribing Information</a>',
                 isiLogoSrc: '/emr_assets/logo.png',
                 isiLogoLink: 'https://logo.com/',
             }),
         ]);
 
-        expect(sources.map((s) => s.slot)).toEqual(['isiHeader', 'isiLogo']);
-        expect(sources[0]).toMatchObject({ elementId: 'isi-1', slot: 'isiHeader', url: 'https://pi.com/doc.pdf' });
+        expect(sources.map((s) => s.slot)).toEqual(['isiLogo', 'isiText']);
+        expect(sources[1]).toMatchObject({ elementId: 'isi-1', slot: 'isiText', index: 0, url: 'https://pi.com/doc.pdf' });
+    });
+
+    it('no longer treats the legacy in-ISI header as a link of the tray', () => {
+        // The PI strip is a standalone element now; a stale isiHeaderText left
+        // on an old project must not produce a link for a band that is never
+        // rendered inside the tray.
+        expect(collectLinkSources([
+            linked({
+                id: 'isi-1',
+                type: 'isiScroll',
+                isiHeaderText: 'Prescribing Information',
+                isiHeaderLink: 'https://pi.com/doc.pdf',
+            }),
+        ])).toEqual([]);
+    });
+
+    it('gives the standalone PI strip element a normal box link', () => {
+        const sources = collectLinkSources([
+            linked({ id: 'pi-1', type: 'piStrip', linkUrl: 'https://pi.com/doc.pdf', linkClickTag: 'clickTag3' }),
+        ]);
+
+        expect(sources).toEqual([
+            { elementId: 'pi-1', slot: 'box', url: 'https://pi.com/doc.pdf', target: '_blank', clickTag: 'clickTag3' },
+        ]);
     });
 
     it('only reports ISI sub-links that are actually rendered', () => {
-        // A link without header text / logo source would never be emitted.
+        // A logo link without a logo source would never be emitted.
         expect(collectLinkSources([
-            linked({ id: 'isi-1', type: 'isiScroll', isiHeaderLink: 'https://pi.com/', isiLogoLink: 'https://logo.com/' }),
+            linked({ id: 'isi-1', type: 'isiScroll', isiLogoLink: 'https://logo.com/' }),
         ])).toEqual([]);
+    });
+
+    it('honours a click tag pinned to a specific ISI section link', () => {
+        const sources = collectLinkSources([
+            linked({
+                id: 'isi-1',
+                type: 'isiScroll',
+                isiText: '<a href="https://a.com/">A</a><a href="https://b.com/">B</a>',
+                // Pin the SECOND anchor to clickTag1 and leave the first on auto.
+                isiTextClickTags: { 1: 'clickTag1' },
+            }),
+        ]);
+
+        expect(sources[0]).toMatchObject({ index: 0, url: 'https://a.com/', clickTag: undefined });
+        expect(sources[1]).toMatchObject({ index: 1, url: 'https://b.com/', clickTag: 'clickTag1' });
+    });
+
+    it('respects "none" on an ISI section link', () => {
+        const sources = collectLinkSources([
+            linked({
+                id: 'isi-1',
+                type: 'isiScroll',
+                isiText: '<a href="https://a.com/">A</a>',
+                isiTextClickTags: { 0: 'none' },
+            }),
+        ]);
+
+        expect(sources[0].clickTag).toBe('none');
+    });
+
+    it('also collects the ISI section links inside the rich text', () => {
+        const sources = collectLinkSources([
+            linked({
+                id: 'isi-1',
+                type: 'isiScroll',
+                isiText:
+                    '<p>Report at <a href="https://www.fda.gov/medwatch" target="_blank">medwatch</a></p>' +
+                    '<p><a href="https://pi.com/doc.pdf">Prescribing Information</a></p>',
+            }),
+        ]);
+
+        expect(sources).toEqual([
+            { elementId: 'isi-1', slot: 'isiText', index: 0, url: 'https://www.fda.gov/medwatch', target: '_blank' },
+            { elementId: 'isi-1', slot: 'isiText', index: 1, url: 'https://pi.com/doc.pdf', target: '_blank' },
+        ]);
+    });
+
+    it('normalises a bare-domain ISI section link and drops an unsafe one', () => {
+        const sources = collectLinkSources([
+            linked({
+                id: 'isi-1',
+                type: 'isiScroll',
+                isiText:
+                    '<a href="www.fda.gov/medwatch">medwatch</a>' +
+                    '<a href="javascript:alert(1)">bad</a>',
+            }),
+        ]);
+
+        expect(sources).toHaveLength(1);
+        expect(sources[0]).toMatchObject({ index: 0, url: 'https://www.fda.gov/medwatch' });
+    });
+});
+
+describe('collectIsiTextAnchors / applyIsiTextClickTags', () => {
+    it('numbers every anchor so its assignment can be looked up', () => {
+        expect(collectIsiTextAnchors('<a href="https://a.com/">A</a> and <a href="https://b.com/">B</a>')).toEqual([
+            { index: 0, url: 'https://a.com/', openTag: '<a href="https://a.com/">', text: 'A' },
+            { index: 1, url: 'https://b.com/', openTag: '<a href="https://b.com/">', text: 'B' },
+        ]);
+    });
+
+    it('captures each anchor label so the panel can name the link', () => {
+        const anchors = collectIsiTextAnchors(
+            '<p>See <a href="https://www.fda.gov/medwatch" style="color:#000">www.fda.gov/medwatch</a>' +
+            ' and <a href="https://pi.com/"><strong>Prescribing</strong> Information</a></p>',
+        );
+
+        expect(anchors.map((a) => a.text)).toEqual(['www.fda.gov/medwatch', 'Prescribing Information']);
+    });
+
+    it('falls back to an empty label for an empty or image anchor', () => {
+        expect(collectIsiTextAnchors('<a href="https://a.com/"><img src="x.png"></a>')[0].text).toBe('');
+    });
+
+    it('returns no anchors for text without links', () => {
+        expect(collectIsiTextAnchors('<p>No links here</p>')).toEqual([]);
+        expect(collectIsiTextAnchors(undefined)).toEqual([]);
+    });
+
+    it('routes an ISI section link through its click tag and keeps the styling', () => {
+        const html = applyIsiTextClickTags(
+            '<p><a href="https://a.com/" target="_blank" style="color:#000000;">medwatch</a></p>',
+            { 0: { name: 'clickTag2', url: 'https://a.com/', target: '_blank' } },
+        );
+
+        expect(html).toContain("window.open(window.clickTag2, '_blank')");
+        expect(html).toContain('style="color:#000000;"');
+        // The old href/target are replaced, not duplicated.
+        expect(html).not.toContain('href="https://a.com/"');
+        expect(html).toContain('medwatch</a>');
+    });
+
+    it('keeps the original tag when an anchor has no assignment', () => {
+        const original = '<p><a href="https://a.com/">A</a></p>';
+
+        expect(applyIsiTextClickTags(original, {})).toBe(original);
+    });
+
+    it('assigns two anchors independently and preserves the surrounding markup', () => {
+        const html = applyIsiTextClickTags(
+            '<p>See <a href="https://a.com/">A</a> and <a href="https://b.com/">B</a>.</p>',
+            {
+                0: { name: 'clickTag1', url: 'https://a.com/', target: '_blank' },
+                1: { name: 'clickTag2', url: 'https://b.com/', target: '_blank' },
+            },
+        );
+
+        expect(html).toContain('window.open(window.clickTag1');
+        expect(html).toContain('window.open(window.clickTag2');
+        expect(html.startsWith('<p>See <a ')).toBe(true);
+        expect(html.endsWith('.</p>')).toBe(true);
+    });
+
+    it('leaves an unsafe anchor untouched because no assignment is ever planned for it', () => {
+        // The real pipeline only assigns variables to safe URLs, so an unsafe
+        // anchor reaches the rewriter with no entry and keeps its original tag.
+        const original = '<a href="javascript:alert(1)">bad</a>';
+        const [anchor] = collectIsiTextAnchors(original);
+
+        expect(anchor.url).toBe('');
+        expect(applyIsiTextClickTags(original, {})).toBe(original);
     });
 });
 
@@ -707,6 +898,33 @@ describe('buildClickTagPlan', () => {
         expect(plan.byElementSlot[linkKey('el-1', 'box')].name).toBeUndefined();
         expect(plan.byElementSlot[linkKey('el-5', 'box')]).toEqual({ url: 'https://e.com/', target: '_blank' });
         expect(plan.declarations).toHaveLength(3);
+    });
+
+    it('auto-reuses the variable already pointing at the same destination', () => {
+        // A hotspot and an ISI section link pointing at the same PI document
+        // must share one variable instead of consuming two of the three.
+        const plan = buildClickTagPlan([
+            source({ elementId: 'isi-1', slot: 'isiText', index: 0, url: 'https://pi.com/doc.pdf' }),
+            source({ elementId: 'isi-2', slot: 'isiText', index: 0, url: 'https://pi.com/doc.pdf' }),
+        ]);
+
+        expect(plan.declarations).toEqual([{ name: 'clickTag1', url: 'https://pi.com/doc.pdf' }]);
+        expect(plan.byElementSlot[linkKey('isi-2', 'isiText', 0)].name).toBe('clickTag1');
+    });
+
+    it('keys ISI rich-text anchors separately from the logo link', () => {
+        // The PI strip is its own element now, so it links through the normal
+        // `box` slot and the ISI tray only exposes logo + section links.
+        const plan = buildClickTagPlan([
+            source({ elementId: 'pi-1', slot: 'box', url: 'https://pi.com/doc.pdf' }),
+            source({ elementId: 'isi-1', slot: 'isiText', index: 0, url: 'https://www.fda.gov/medwatch' }),
+            source({ elementId: 'isi-1', slot: 'isiText', index: 1, url: 'https://pi.com/doc.pdf' }),
+        ]);
+
+        expect(plan.byElementSlot[linkKey('pi-1', 'box')].name).toBe('clickTag1');
+        expect(plan.byElementSlot[linkKey('isi-1', 'isiText', 0)].name).toBe('clickTag2');
+        // Same destination as the strip -> reuses clickTag1.
+        expect(plan.byElementSlot[linkKey('isi-1', 'isiText', 1)].name).toBe('clickTag1');
     });
 });
 
