@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Python
+__pycache__/
+*.py[cod]
+# Office temp / lock files
+~$*.docx
+~$*.doc
+# Vite / debug leftovers
+vite-dev.log
+vite-dev.err
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
