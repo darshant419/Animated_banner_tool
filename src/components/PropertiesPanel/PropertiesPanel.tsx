@@ -203,11 +203,6 @@ export const PropertiesPanel: React.FC = () => {
         }, 0);
     };
 
-    const insertPIBar = () => {
-        const piBar = `<p style="font-size:10px;padding: 3px 10px 5px;background-color: #E8FFF9;font-weight: bold;margin-bottom:10px;"><a href="#" style="color:#000000;text-decoration:underline;">Prescribing Information</a></p>\n`;
-        handleChange('isiText', piBar + (selectedElement?.isiText || ''));
-    };
-
     const insertList = () => {
         const listText = `<ul>\n  <li>List item 1</li>\n  <li>List item 2</li>\n</ul>\n`;
         handleChange('isiText', (selectedElement?.isiText || '') + listText);
@@ -781,7 +776,7 @@ return (
                 </div>
 
                 {/* Appearance */}
-                {(selectedElement.type === 'rect' || selectedElement.type === 'text' || selectedElement.type === 'circle') && (
+                {( selectedElement.type === 'text') && (
                     <div className="space-y-4 border-t border-[#232330] pt-4">
                         <label className="text-xs font-medium text-gray-400 uppercase">Appearance</label>
                         <div className="space-y-3">
@@ -798,18 +793,7 @@ return (
                                         <span className="text-xs text-gray-400">{selectedElement.fill}</span>
                                     </div>
                                 </div>
-                                {selectedElement.type === 'rect' && (
-                                    <div>
-                                        <label className="text-xs text-gray-400 mb-1 block">Radius</label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            value={selectedElement.cornerRadius || 0}
-                                            onChange={(e) => handleChange('cornerRadius', Number(e.target.value))}
-                                            className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                                        />
-                                    </div>
-                                )}
+                      
                             </div>
 
                             <div>
@@ -1211,7 +1195,34 @@ return (
                     <div className="space-y-3 border-t border-[#232330] pt-4 pb-6">
                         <div className="flex items-center justify-between">
                             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">PI Strip</label>
-                            <span className="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">Separate Layer</span>
+                            {selectedElement.dockedIsiId ? (
+                                <span className="bg-emerald-500/15 text-emerald-400 text-[10px] px-1.5 py-0.5 rounded-full font-bold">Pinned in ISI</span>
+                            ) : (
+                                <span className="bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">Separate Layer</span>
+                            )}
+                        </div>
+
+                        {/* Dock to ISI: pins this strip end-to-end across the top
+                            of the chosen tray; the ISI body scrolls beneath it. */}
+                        <div>
+                            <label className="text-[11px] text-gray-400 mb-1 block">Pin inside ISI tray</label>
+                            <select
+                                value={selectedElement.dockedIsiId || ''}
+                                onChange={(e) => handleChange('dockedIsiId', e.target.value || undefined)}
+                                className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                            >
+                                <option value="">Not pinned (separate layer)</option>
+                                {elements.filter((t) => t.type === 'isiScroll' && t.visible !== false).map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                        {t.name || `ISI ${t.id.slice(-4)}`} ({t.width || 300}×{t.height || 200})
+                                    </option>
+                                ))}
+                            </select>
+                            {selectedElement.dockedIsiId && (
+                                <p className="text-[10px] text-emerald-400 mt-1 leading-relaxed">
+                                    Pinned end-to-end across the tray's top — spans its full width and stays fixed while the ISI text scrolls underneath. Position/size on the canvas are ignored while pinned.
+                                </p>
+                            )}
                         </div>
 
                         <div>
@@ -1221,7 +1232,7 @@ return (
                                 value={selectedElement.text || ''}
                                 onChange={(e) => handleChange('text', e.target.value)}
                                 placeholder="Prescribing Information"
-                                className="w-full border border-[#232330] rounded px-2 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                className="w-full border border-[#232330] text-underlined rounded px-2 py-1.5 text-xs focus:border-red-500  bg-[#1a1a21] text-gray-100"
                             />
                         </div>
 
@@ -1345,7 +1356,7 @@ return (
                     <div className="space-y-4 border-t border-[#232330] pt-4 pb-6">
                         <div className="flex items-center justify-between">
                             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">ISI Pro Suite</label>
-                            <span className="bg-green-50 text-green-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">EMR Standard</span>
+                  
                         </div>
                         
                         <div className="space-y-4">
@@ -1391,13 +1402,6 @@ return (
                                             title="Blue Text"
                                         >
                                             <Type size={14} className="text-red-500" />
-                                        </button>
-                                        <button 
-                                            onClick={insertPIBar}
-                                            className="px-1.5 py-0.5 bg-green-50 text-green-700 text-[10px] rounded font-bold hover:bg-green-100 transition-colors"
-                                            title="Insert PI Header"
-                                        >
-                                            PI BAR
                                         </button>
                                     </div>
                                 </div>

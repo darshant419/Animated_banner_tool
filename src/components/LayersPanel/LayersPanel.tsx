@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Eye, EyeOff, Lock, Unlock, Type, Square, Circle,
-  Image as ImageIcon, ScrollText, Shapes, Code2,
+  Image as ImageIcon, ScrollText, Shapes, Code2, Minus,
   ArrowUp, ArrowDown, Copy, Trash2, Pencil, Link2,
 } from 'lucide-react';
 import { useDesignStore, type DesignElement } from '../../store/designStore';
@@ -13,6 +13,7 @@ const typeIcon = (type: DesignElement['type'], size = 16) => {
     case 'circle': return <Circle size={size} />;
     case 'image': return <ImageIcon size={size} />;
     case 'isiScroll': return <ScrollText size={size} />;
+    case 'piStrip': return <Minus size={size} />;
     case 'shape': return <Shapes size={size} />;
     case 'html': return <Code2 size={size} />;
   }
@@ -72,16 +73,24 @@ export const LayersPanel: React.FC = () => {
           >
             <span className="text-gray-500 shrink-0">{typeIcon(el.type)}</span>
 
-            {(el.linkUrl || el.isiHeaderLink || el.isiLogoLink) && (
+            {(el.linkUrl || el.isiLogoLink) && (
               <span
                 className="text-emerald-400 shrink-0"
                 title={
                   el.type === 'isiScroll'
-                    ? `ISI links: ${[el.isiHeaderLink, el.isiLogoLink].filter(Boolean).join(' · ')}`
+                    ? `ISI logo link: ${el.isiLogoLink}`
                     : `Click tag (${el.linkClickTag || 'auto'}): ${el.linkUrl}`
                 }
               >
                 <Link2 size={12} />
+              </span>
+            )}
+            {el.type === 'piStrip' && el.dockedIsiId && (
+              <span
+                className="text-emerald-400 shrink-0 text-[10px] font-bold"
+                title={`Pinned inside ISI ${el.dockedIsiId.slice(-4)} — spans its full width, ISI text scrolls underneath`}
+              >
+                📌
               </span>
             )}
 

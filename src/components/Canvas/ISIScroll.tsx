@@ -67,12 +67,6 @@ interface ISIScrollProps {
     isiFontWeight?: string;
     isiFontStyle?: 'normal' | 'italic';
     hideText?: boolean;
-    // Traditional ISI header bar
-    isiHeaderText?: string;
-    isiHeaderLink?: string;
-    isiHeaderColor?: string;
-    isiHeaderBackground?: string;
-    isiHeaderHeight?: number;
 }
 
 export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function ISIScroll({
@@ -113,10 +107,6 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
     isiFontWeight = 'normal',
     isiFontStyle = 'normal',
     hideText = false,
-    isiHeaderText,
-    isiHeaderColor = '#000000',
-    isiHeaderBackground = '#E8FFF9',
-    isiHeaderHeight = 20,
 }, forwardedRef) {
     const groupRef = useRef<Konva.Group>(null);
     // NOTE: This Konva node is a STATIC selectable shell only. The ISI scroll
@@ -127,9 +117,10 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
     // mouseleave) and froze the whole master timeline, killing all banner
     // animations.
 
-    const hasHeader = Boolean(isiHeaderText);
-    const effectiveHeaderHeight = hasHeader ? isiHeaderHeight : 0;
-    const bodyHeight = Math.max(0, height - effectiveHeaderHeight);
+    // The PI strip is its own element, so the tray is nothing but the scrolling
+    // text and always spans the element's full height.
+    const bodyHeight = Math.max(0, height);
+    const effectiveHeaderHeight = 0;
 
     // Calculate effective padding (individual sides override single value)
     const paddingTop = isiPaddingTop ?? isiPadding;
@@ -203,32 +194,6 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
                 stroke="#e2e8f0"
                 strokeWidth={0.5}
             />
-
-            {/* Traditional header bar ("Prescribing Information" strip) */}
-            {hasHeader && (
-                <Group y={0}>
-                    <Rect
-                        width={width}
-                        height={effectiveHeaderHeight}
-                        fill={isiHeaderBackground}
-                    />
-                    <Text
-                        text={isiHeaderText || ''}
-                        x={10}
-                        y={effectiveHeaderHeight / 2}
-                        height={effectiveHeaderHeight}
-                        verticalAlign="middle"
-                        fontSize={10}
-                        fontFamily="Arial, Helvetica, sans-serif"
-                        fontStyle="bold"
-                        fill={isiHeaderColor}
-                        lineHeight={1.2}
-                        ellipsis
-                        width={width - 20}
-                        textDecoration="underline"
-                    />
-                </Group>
-            )}
 
             {/* Content Clipping */}
             <Group clipFunc={(ctx) => ctx.rect(0, effectiveHeaderHeight, width, bodyHeight)} visible={!hideText}>

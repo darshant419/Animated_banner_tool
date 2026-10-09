@@ -75,7 +75,8 @@ export interface BuildBannerPackageOptions {
 const BASE_CSS_LINES: string[] = [
     '* { box-sizing: border-box; margin: 0; padding: 0; }',
     'body { margin: 0; padding: 0; background: #f0f0f0; font-family: Arial, Helvetica, sans-serif; }',
-    '.isi-main { position: absolute; overflow: hidden; }',
+    '.isi-main { position: absolute; overflow: hidden; display: flex; flex-direction: column; }',
+    '.isi-main .patient_link { flex: 0 0 auto; width: 100%; }',
     '.isi-main * { pointer-events: all; }',
     '.patient_link p { font-size: 10px; padding: 3px 5px 5px 11px; background-color: #E8FFF9; font-family: Arial, Helvetica, sans-serif; font-weight: bold; margin: 5px 0 10px 0; }',
     '.patient_link a { color: #000000; text-decoration: underline; text-underline-offset: 1px; font-weight: bold; }',
@@ -205,9 +206,20 @@ export async function buildBannerPackage({
             const bgCol = el.isiBackgroundColor || '#ffffff';
             const scrollCol = el.isiScrollbarColor || '#006937';
             const indicatorCol = el.isiScrollbarTrackColor || '#f2f2f2';
+            // Docked PI strip: a strip with dockedIsiId === this tray renders
+            // INSIDE the tray as a pinned, full-bleed (.patient_link) header —
+            // end-to-end across the top — while the .isi body scrolls beneath
+            // it. Same geometry as the preview overlay: full tray width, the
+            // strip's own height, padding, colours, type and click-through.
+            const docked = elements.find((s) => s.type === 'piStrip' && s.dockedIsiId === el.id && s.visible !== false);
+            const dockedCss = docked ? getPiStripStyle(docked) : null;
+            const dockedHeight = docked ? (docked.height || 20) : 0;
             // The PI strip is its own element now, so the tray is nothing but the
-            // scrolling text and always gets the element's full height.
-            const bodyHeight = el.height || 200;
+            // scrolling text and always gets the element's full height — EXCEPT
+            // when a strip is docked: then the tray keeps its full height but
+            // the scrolling wrapper only gets the space BELOW the pinned header.
+            const trayHeight = el.height || 200;
+            const bodyHeight = Math.max(0, trayHeight - dockedHeight);
             const logoWidth = el.isiLogoWidth || 187;
 
             cssLines.push(
@@ -260,6 +272,19 @@ export async function buildBannerPackage({
             const isiElemId = 'isi-content-' + el.id;
             const isiIndicatorId = 'isi-indicator-' + el.id;
 
+            // Click-through for the header + logo + ISI section links.
+            const dockedLink = docked ? linkPlan.byElementSlot[linkKey(docked.id, 'box')] : undefined;
+            const pinnedHeaderHtml = docked && dockedCss
+                ? '          <div class="patient_link" style="flex: 0 0 auto; width: 100%; height: ' + dockedHeight + 'px; box-sizing: border-box; background: ' + dockedCss.background + '; border-radius: ' + dockedCss.borderRadius + 'px; padding: ' + dockedCss.paddingTop + 'px ' + dockedCss.paddingRight + 'px ' + dockedCss.paddingBottom + 'px ' + dockedCss.paddingLeft + 'px; display: flex; align-items: center; justify-content: ' + dockedCss.align + '; overflow: hidden;">' +
+                (dockedLink ? '<a ' + buildLinkAttributes(dockedLink) + '>' : '') +
+                '<span style="color: ' + (docked.fill || '#000000') + '; font-size: ' + (docked.fontSize || 10) + 'px; font-family: Arial, Helvetica, sans-serif; font-weight: bold;' + (dockedLink ? ' text-decoration: underline; text-underline-offset: 1px;' : '') + '">' + (docked.text || '') + '</span>' +
+                (dockedLink ? '</a>' : '') +
+                '</div>'
+                : '';
+            const dockedCssLines = docked && dockedCss
+                ? ['#' + id + ' .patient_link a { color: inherit; }']
+                : [];
+
             // The ISI tray scrolls ONLY if "Auto ISI Scroll" is enabled
             // (isiAutoStart). It runs on its OWN clock (setTimeout + rAF loop),
             // completely independent of the banner's master animation timeline.
@@ -278,6 +303,8 @@ export async function buildBannerPackage({
 
             htmlBodyParts.push(
                 '          <div id="' + id + '" class="isi-main">',
+                // Pinned header first (never scrolls), then the scrolling body.
+                ...(pinnedHeaderHtml ? [pinnedHeaderHtml] : []),
                 '          <div class="isi_wrapper">',
                 '            <div class="isi" id="' + isiElemId + '">' + inner + '</div>',
                 '            <div class="iScrollVerticalScrollbar" style="overflow: hidden;"><div class="iScrollIndicator" id="' + isiIndicatorId + '"></div></div>',
@@ -287,7 +314,11 @@ export async function buildBannerPackage({
             // No `continue` here: the ISI tray still runs the shared animation
             // pipeline below, so its entrance / exit and the "Disappear" end
             // behaviour are exported like any other layer.
+            cssLines.push(...dockedCssLines);
         } else if (el.type === 'piStrip') {
+            // Docked strips render pinned INSIDE their ISI tray (above), so
+            // skip the standalone layer — otherwise they'd appear twice.
+            if (el.dockedIsiId && elements.some((t) => t.id === el.dockedIsiId && t.type === 'isiScroll' && t.visible !== false)) continue;
             // The PI strip is an ordinary layer: it gets its own box, its own
             // z-index (its position in the layer order) and its own padding.
             const s = getPiStripStyle(el);

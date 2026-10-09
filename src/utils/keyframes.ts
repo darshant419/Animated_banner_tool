@@ -307,8 +307,10 @@ export const getElementKeyframes = (el: DesignElement, totalDuration?: number): 
     // leaves the element at its resting state, so it remains visible for the
     // rest of the banner. `hide` appends a short fade-out that ends on the
     // final frame of the banner, so the element disappears even though no exit
-    // preset was chosen.
-    if (el.endBehavior === 'hide' && exit.length === 0 && totalDuration && totalDuration > mainEnd) {
+    // preset was chosen. The fade applies whenever a banner duration is known,
+    // even when the banner is shorter than the entrance animation (in which
+    // case the entrance is clamped and the terminal frame is hidden).
+    if (el.endBehavior === 'hide' && exit.length === 0 && totalDuration) {
         out = appendEndHide(el, out, totalDuration);
     }
 
@@ -341,11 +343,17 @@ export const endHideFadeDuration = (el: DesignElement): number =>
  */
 const appendEndHide = (el: DesignElement, frames: AnimationKeyframe[], totalDuration: number): AnimationKeyframe[] => {
     const rest = getElementBaseState(el);
-    const last = frames.length > 0 ? frames[frames.length - 1] : undefined;
+    // Clamp every keyframe to the banner end: an entrance animation that is
+    // longer than `totalDuration` would otherwise emit percentages past 100%
+    // (an element animating over 1s inside a 0.5s banner lands at 200%).
+    const clamped = frames.map((f) =>
+        f.time > totalDuration ? { ...f, time: totalDuration } : f
+    );
+    const last = clamped.length > 0 ? clamped[clamped.length - 1] : undefined;
     const lastTime = last ? last.time : 0;
     const from = last ? { ...rest, ...lastDefined(last, rest) } : rest;
     const ease = el.exitEasing || 'power1.in';
-    const out = [...frames];
+    const out = [...clamped];
 
     const fadeStart = Math.max(lastTime, totalDuration - endHideFadeDuration(el));
     if (fadeStart > lastTime && fadeStart < totalDuration) {
@@ -357,10 +365,13 @@ const appendEndHide = (el: DesignElement, frames: AnimationKeyframe[], totalDura
     // frame at the same time would render after the master timeline stops and
     // the element would never reach opacity 0.
     const terminal = out.findIndex((f) => Math.abs(f.time - totalDuration) < 1e-6);
-    if (terminal >= 0) out[terminal] = { ...out[terminal], opacity: 0, easing: ease };
-    else out.push(kf(totalDuration, { ...from, opacity: 0, easing: ease }));
+    if (terminal >= 0) {
+        out[terminal] = { ...out[terminal], opacity: 0, easing: ease };
+    } else {
+        out.push(kf(totalDuration, { ...from, opacity: 0, easing: ease }));
+    }
 
-    return out;
+    return out.sort((a, b) => a.time - b.time);
 };
 
 /** A colored segment describing one animation block's timeframe on the timeline. */

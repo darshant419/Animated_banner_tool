@@ -1,6 +1,7 @@
 import { create } from 'zustand';
+import { migrateIsiHeaderToPiStrip } from '../utils/piMigration';
 
-export type ElementType = 'text' | 'rect' | 'circle' | 'image' | 'video' | 'isiScroll' | 'shape' | 'html' | 'piStrip';
+export type ElementType = 'text' | 'image' | 'video' | 'isiScroll' | 'shape' | 'html' | 'piStrip';
 
 export interface AnimationKeyframe {
     id: string;
@@ -227,6 +228,14 @@ export interface DesignElement {
     piBorderRadius?: number;
     /** Horizontal alignment of the label inside the strip. */
     piAlign?: 'left' | 'center' | 'right';
+    /**
+     * Docking: id of the ISI tray this strip is pinned to. When set (and the
+     * tray exists + is visible), the strip renders INSIDE the tray — a pinned,
+     * full-bleed (end-to-end) header at the tray's top — instead of as its own
+     * free-floating layer. The ISI body scrolls underneath it. Cleared on
+     * "Undock" / element delete.
+     */
+    dockedIsiId?: string;
     // Wave properties
     waveAmplitude?: number;
     waveFrequency?: number;
@@ -651,7 +660,13 @@ export const useDesignStore = create<DesignState>((set) => ({
                 state.selectedKeyframe?.elementId === id ? null : state.selectedKeyframe,
             ...withActiveElements(
                 state,
-                state.elements.filter((el) => el.id !== id)
+                // Deleting a tray undocks any strip pinned to it (stale ids
+                // would otherwise hide the strip forever as "docked").
+                state.elements
+                    .filter((el) => el.id !== id)
+                    .map((el) => (el.type === 'piStrip' && el.dockedIsiId === id
+                        ? { ...el, dockedIsiId: undefined }
+                        : el))
             ),
         })),
 

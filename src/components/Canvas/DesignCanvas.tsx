@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useLayoutEffect, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Stage, Layer, Rect, Circle, Line, Text, Transformer, Image as KonvaImage, Path,
+  Stage, Layer, Rect, Circle, Line, Text, Transformer, Image as KonvaImage, Path, Group,
 } from 'react-konva';
 import { useDesignStore, type Artboard, type DesignElement } from '../../store/designStore';
 import { LayoutGrid, Square, Link2 } from 'lucide-react';
@@ -11,6 +11,7 @@ import { ISIScroll } from './ISIScroll';
 import { ISIOverlay } from './ISIOverlay';
 import { buildMasterTimeline, registerMasterSeeker, unregisterMasterSeeker } from './AnimationHelpers';
 import { getElementBaseState } from '../../utils/keyframes';
+import { getPiStripStyle } from '../../utils/bannerExport';
 import { buildBannerPackage, zipBannerPackage } from '../../utils/bannerPackage';
 import { buildClickTagPlanForElements, linkKey } from '../../utils/bannerExport';
 
@@ -49,6 +50,8 @@ const editorTextColor = (fill: string | undefined, bg: string | undefined): stri
 
 interface ShapeProps {
   el: DesignElement;
+  /** All board elements — lets a docked PI strip find its tray. */
+  elements?: DesignElement[];
   isPlaying: boolean;
   registerNode: (id: string, node: Konva.Node | null) => void;
   onSelect: (id: string) => void;
@@ -61,6 +64,7 @@ interface ShapeProps {
 
 const ElementShape = memo(function ElementShape({
   el,
+  elements,
   isPlaying,
   registerNode,
   onSelect,
@@ -159,11 +163,6 @@ const commonProps = {
           isiScrollbarPadding={el.isiScrollbarPadding}
           isiScrollbarHeight={el.isiScrollbarHeight}
           isiScrollbarWidth={el.isiScrollbarWidth}
-          isiHeaderText={el.isiHeaderText}
-          isiHeaderLink={el.isiHeaderLink}
-          isiHeaderColor={el.isiHeaderColor}
-          isiHeaderBackground={el.isiHeaderBackground}
-          isiHeaderHeight={el.isiHeaderHeight}
           isiLineHeight={el.isiLineHeight}
           isiLetterSpacing={el.isiLetterSpacing}
           isiFontFamily={el.isiFontFamily}
@@ -174,6 +173,42 @@ const commonProps = {
           onDragEnd={onDragEnd}
         />
       );
+    case 'piStrip': {
+      // Standalone PI strip: a band plus its label. Its own box (and therefore
+      // its own z-order) comes from the normal element rendering order.
+      // DOCKED strips are skipped here — they render pinned inside their ISI
+      // tray (see ISIOverlay), so drawing them free would duplicate them.
+      const dockedTo = elements?.find((t) => t.id === el.dockedIsiId && t.type === 'isiScroll' && t.visible !== false);
+      if (el.dockedIsiId && dockedTo) return null;
+      const s = getPiStripStyle(el);
+      const konvaFontStyle = [el.fontWeight === 'bold' ? 'bold' : ''].filter(Boolean).join(' ') || 'normal';
+      return (
+        <Group ref={ref as any} {...commonProps}>
+          <Rect
+            width={el.width || 300}
+            height={el.height || 20}
+            fill={s.background}
+            cornerRadius={s.borderRadius}
+          />
+          <Text
+            text={el.text || ''}
+            width={el.width || 300}
+            height={el.height || 20}
+            padding={s.paddingLeft}
+            x={0}
+            y={0}
+            fontSize={el.fontSize || 10}
+            fontFamily={el.fontFamily || 'Arial, Helvetica, sans-serif'}
+            fontStyle={konvaFontStyle}
+            fill={el.fill || '#000000'}
+            align={s.align}
+            verticalAlign="middle"
+            textDecoration={el.linkUrl ? 'underline' : 'normal'}
+            onDblClick={() => onEditText(el.id)}
+          />
+        </Group>
+      );
+    }
     case 'shape':
       return (
         <Path
@@ -224,9 +259,12 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   const elements = board.elements;
 
   // Click-tag areas of this board, resolved with the exporter's own rules so the
-  // canvas shows exactly which regions of the banner are clickable.
+  // canvas shows exactly which regions of the banner are clickable. A docked
+  // PI strip renders pinned inside its tray (not at its own x/y), so it gets
+  // no free-floating hotspot box — its link lives in the tray header instead.
   const linkPlan = useMemo(() => buildClickTagPlanForElements(elements), [elements]);
   const linkAreas = elements.flatMap((el) => {
+    if (el.type === 'piStrip' && el.dockedIsiId && elements.some((t) => t.id === el.dockedIsiId && t.type === 'isiScroll' && t.visible !== false)) return [];
     const link = linkPlan.byElementSlot[linkKey(el.id, 'box')];
     return link ? [{ el, link }] : [];
   });
@@ -486,6 +524,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
             <ElementShape
               key={el.id}
               el={el}
+              elements={elements}
               isPlaying={isPlaying}
               registerNode={registerNode}
               onSelect={(id) => { activate(); selectElement(id); }}
@@ -539,7 +578,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
           during playback it becomes interactive (hover pause + scrollbar). */}
       {elements.some((el) => el.type === 'isiScroll' && el.visible !== false) && (
         elements.filter((el) => el.type === 'isiScroll' && el.visible !== false).map((el) => (
-          <ISIOverlay key={el.id} element={el} isActive={true} isAnimating={isPlaying} />
+          <ISIOverlay key={el.id} element={el} isActive={true} isAnimating={isPlaying} allElements={elements} />
         ))
       )}
 

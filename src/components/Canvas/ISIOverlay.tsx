@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import type { DesignElement } from '../../store/designStore';
-import { buildIsiHeaderCss, getIsiBulletSpacing, getIsiHeaderStripStyle } from '../../utils/bannerExport';
-
+import { getIsiBulletSpacing, getPiStripStyle } from '../../utils/bannerExport';
 interface ISIOverlayProps {
   element: DesignElement;
   isActive: boolean;
@@ -9,13 +8,26 @@ interface ISIOverlayProps {
    *  a static tray with the editable content + logo. This flag only toggles
    *  the tray's interactivity (manual wheel / scrollbar while previewing). */
   isAnimating?: boolean;
+  /** All design elements — lets the tray find a PI strip docked to it so it
+   *  can render the strip as a pinned, full-bleed header. */
+  allElements?: DesignElement[];
 }
 
-export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = false }) => {
+export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = false, allElements }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
+
+  // Pinned PI header: a strip with dockedIsiId === this tray's id (and still
+  // visible) renders INSIDE the tray — end-to-end across the top — instead of
+  // as a free layer. The scrolling body is offset below it.
+  const dockedStrip = useMemo(
+    () => (allElements || []).find((el) => el.type === 'piStrip' && el.dockedIsiId === element.id && el.visible !== false),
+    [allElements, element.id],
+  );
+  const dockedStyle = useMemo(() => (dockedStrip ? getPiStripStyle(dockedStrip) : null), [dockedStrip]);
+  const pinnedHeight = dockedStrip ? (dockedStrip.height || 20) : 0;
 
   // NO ANIMATION BY DEFAULT: the ISI tray is static — editable content + logo.
   // OPTIONAL auto-scroll: when "Auto ISI Scroll" is enabled (isiAutoStart),
@@ -40,10 +52,11 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
   }, [element, scrollDurationS, holdDurationS, autoScroll, startDelayS]);
 
   const getMaxScroll = useCallback((): number => {
-    const el = latestRef.current.element;
-    if (!contentRef.current || !containerRef.current) return 0;
-    const headerHeight = el.isiHeaderText ? el.isiHeaderHeight || 20 : 0;
-    return (contentRef.current.scrollHeight - headerHeight) - containerRef.current.clientHeight;
+    const content = contentRef.current;
+    const container = containerRef.current;
+    if (!content || !container) return 0;
+    // No header band sits inside the tray any more, so the whole content scrolls.
+    return content.scrollHeight - container.clientHeight;
   }, []);
 
   // Manual scroll writer (wheel / scrollbar drag) — kept in sync so the auto
@@ -171,28 +184,16 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
     );
   }, [element, bulletScopeId]);
 
-  // The PI strip's own box (padding / margin / height). Deliberately resolved
-  // from the header fields ONLY — the tray's isiPadding above applies to the
-  // scrolling body, so the strip stays a separate, end-to-end band.
-  const headerStrip = useMemo(() => getIsiHeaderStripStyle(element), [element]);
-  const headerCss = useMemo(
-    () => buildIsiHeaderCss(`#${bulletScopeId}`, element).join(' '),
-    [element, bulletScopeId],
-  );
-
   // Measure the scrollable content height (drives the scrollbar indicator and
   // maxScroll math). ResizeObserver catches async image/logo loading too.
   useEffect(() => {
     if (!contentRef.current) return;
-    const measure = () => {
-      const headerHeight = element.isiHeaderText ? element.isiHeaderHeight || 20 : 0;
-      setContentHeight(contentRef.current!.scrollHeight - headerHeight);
-    };
+    const measure = () => setContentHeight(contentRef.current!.scrollHeight);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(contentRef.current);
     return () => ro.disconnect();
-  }, [element.isiText, element.isiHeaderText, element.isiHeaderHeight, element.isiLogoSrc, element.fontSize, element.isiLineHeight, element.width, element.height]);
+  }, [element.isiText, element.isiLogoSrc, element.fontSize, element.isiLineHeight, element.width, element.height]);
 
   // Mouse wheel over the ISI tray: scroll up/down manually. Works in edit mode
   // AND during preview — the ISI never requires the Play/Preview button. The
@@ -323,6 +324,8 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
     // height and covers the whole banner, hiding every other element.
     width: element.width || 300,
     height: element.height || 200,
+    display: 'flex',
+    flexDirection: 'column',
     backgroundColor: element.isiBackgroundColor || '#ffffff',
     color: element.fill || '#000000',
     fontSize: `${element.fontSize || 12}px`,
@@ -351,11 +354,11 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
   const scrollbarColor = element.isiScrollbarColor || '#006937';
   const indicatorColor = element.isiScrollbarTrackColor || '#f2f2f2';
 
-  const headerText = element.isiHeaderText;
-  // The strip's own margins count toward the space it consumes, so the body
-  // starts below the strip AND its gaps.
-  const headerHeight = headerText ? headerStrip.totalHeight : 0;
-  const bodyHeight = Math.max(0, (element.height || 200) - headerHeight);
+  // The PI strip is its own layer now, so the tray is nothing but the scrolling
+  // text — except when a strip is DOCKED: then it pins end-to-end across the
+  // tray's top and the body scrolls in the space below it.
+  const trayHeight = element.height || 200;
+  const bodyHeight = Math.max(0, trayHeight - pinnedHeight);
   const maxScroll = contentHeight - bodyHeight;
   const logoWidth = element.isiLogoWidth || 187;
 
@@ -371,40 +374,62 @@ export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = f
       {/* Designer-controlled bullet spacing. Scoped by the tray's generated ID and
           built from the same helper the exporter uses, so the canvas preview
           matches the downloaded banner exactly. */}
-      <style>{bulletCss + ' ' + headerCss}</style>
+      <style>{bulletCss}</style>
 
-      {/* Traditional patient_link header strip. Geometry (padding / margin /
-          height) comes from the shared exporter rules above, so this strip keeps
-          its own box and is never moved by the ISI tray padding, which applies
-          only to the scrolling body. */}
-      {headerText && (
-        <div className="patient_link">
-          <p
-            style={{
-              fontSize: 10,
-              backgroundColor: element.isiHeaderBackground || '#E8FFF9',
-              fontFamily: 'Arial, Helvetica, sans-serif',
-              fontWeight: 'bold',
-            }}
-          >
+      {/* Scrollable wrapper (mirrors .isi_wrapper) */}
+      {/* Pinned PI header: a docked strip spans end-to-end across the tray's
+          top and NEVER scrolls — the wrapper below scrolls under it. Full
+          tray width (ignores the strip's own x/width), same background,
+          padding, type and click-through as the exported .patient_link. */}
+      {dockedStrip && dockedStyle && (
+        <div
+          className="patient_link"
+          style={{
+            flex: '0 0 auto',
+            width: '100%',
+            height: pinnedHeight,
+            boxSizing: 'border-box',
+            background: dockedStyle.background,
+            borderRadius: dockedStyle.borderRadius,
+            padding: `${dockedStyle.paddingTop}px ${dockedStyle.paddingRight}px ${dockedStyle.paddingBottom}px ${dockedStyle.paddingLeft}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: dockedStyle.align,
+            overflow: 'hidden',
+            zIndex: 2,
+          }}
+        >
+          {dockedStrip.linkUrl ? (
             <a
-              href={element.isiHeaderLink || '#'}
-              target={element.isiHeaderLink ? '_blank' : undefined}
+              href={dockedStrip.linkUrl}
+              target={dockedStrip.linkTarget || '_blank'}
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               style={{
-                color: element.isiHeaderColor || '#000000',
+                color: dockedStrip.fill || '#000000',
+                fontSize: `${dockedStrip.fontSize || 10}px`,
+                fontFamily: 'Arial, Helvetica, sans-serif',
+                fontWeight: 'bold',
                 textDecoration: 'underline',
                 textUnderlineOffset: 1,
+              }}
+            >
+              {dockedStrip.text || ''}
+            </a>
+          ) : (
+            <span
+              style={{
+                color: dockedStrip.fill || '#000000',
+                fontSize: `${dockedStrip.fontSize || 10}px`,
+                fontFamily: 'Arial, Helvetica, sans-serif',
                 fontWeight: 'bold',
               }}
             >
-              {headerText}
-            </a>
-          </p>
+              {dockedStrip.text || ''}
+            </span>
+          )}
         </div>
       )}
-
-      {/* Scrollable wrapper (mirrors .isi_wrapper) */}
       <div className="isi_wrapper" style={{ position: 'relative', height: bodyHeight, paddingRight: 10, overflow: 'hidden' }}>
         <div
           ref={contentRef}

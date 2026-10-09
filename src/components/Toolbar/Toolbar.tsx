@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   MousePointer2, Type, Image as ImageIcon, Loader2,
-  ScrollText, Layers, Shapes, Layout, FileJson,
+  ScrollText, Layers, Shapes, Layout, FileJson, SeparatorHorizontal,
 } from 'lucide-react';
 import { useDesignStore, type ElementType } from '../../store/designStore';
 import { EMR_ISI_TEXT } from '../../templates/emrTemplates';
@@ -10,7 +10,7 @@ import { uploadAndSaveAsset } from '../../services/assetService';
 
 export type ToolType =
   | 'select' | 'text' | 'upload'
-  | 'isiScroll' | 'assets' | 'templates' | 'layers' | 'variations';
+  | 'isiScroll' | 'piStrip' | 'assets' | 'templates' | 'layers' | 'variations';
 
 interface ToolbarProps {
     activeTool: ToolType;
@@ -61,6 +61,25 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
                 isiAutoStart: true,
                 fontSize: 12,
                 fill: '#006937',
+            });
+            onToolChange('select');
+        }
+
+        // The PI strip is a standalone layer, so it can be positioned and
+        // z-ordered independently of the ISI tray.
+        if (tool === 'piStrip') {
+            addElement({
+                id: Date.now().toString(),
+                type: 'piStrip',
+                x: 0,
+                y: 142,
+                width: 300,
+                height: 20,
+                text: 'Prescribing Information',
+                fill: '#000000',
+                fontSize: 10,
+                fontWeight: 'bold',
+                piBackground: '#E8FFF9',
             });
             onToolChange('select');
         }
@@ -125,6 +144,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
                 label="ISI"
                 isActive={activeTool === 'isiScroll'}
                 onClick={() => handleToolClick('isiScroll')}
+            />
+            <ToolButton
+                icon={<SeparatorHorizontal size={20} />}
+                label="PI Strip"
+                isActive={activeTool === 'piStrip'}
+                onClick={() => handleToolClick('piStrip')}
             />
             <div className="w-8 h-px bg-[#15151c]/10" />
             <ToolButton

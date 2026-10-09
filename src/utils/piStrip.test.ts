@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildBannerPackage } from './bannerPackage';
-import { getPiStripStyle, migrateIsiHeaderToPiStrip } from './bannerExport';
+import { getPiStripStyle } from './bannerExport';
+import { migrateIsiHeaderToPiStrip } from './piMigration';
 import type { DesignElement } from '../store/designStore';
 
 describe('standalone PI strip element', () => {
@@ -89,6 +90,34 @@ describe('standalone PI strip element', () => {
 
             expect(pkg.html).not.toContain('patient_link');
             // The tray gets its whole height; nothing is reserved for a band.
+            expect(pkg.css).toContain('#el-isi-1 .isi_wrapper { height: 88px; }');
+        });
+
+        it('renders a docked strip pinned inside its tray', async () => {
+            const pkg = await build([
+                strip({ id: 'pi-1', dockedIsiId: 'isi-1', linkUrl: 'https://pi.com/doc.pdf' }),
+                { id: 'isi-1', type: 'isiScroll', x: 0, y: 140, width: 300, height: 88, isiText: '<p>Safety</p>' },
+            ]);
+
+            // Header lives inside the tray (pinned), never as a free layer…
+            expect(pkg.html).toContain('<div id="el-isi-1" class="isi-main">');
+            expect(pkg.html).toContain('<div class="patient_link"');
+            expect(pkg.html).toContain('Prescribing Information');
+            expect(pkg.html).not.toContain('<div id="el-pi-1" class="pi-strip">');
+            // …and the scrolling body only gets the space below the 20px header.
+            expect(pkg.css).toContain('#el-isi-1 .isi_wrapper { height: 68px; }');
+            // The header link still routes through its click tag.
+            expect(pkg.html).toContain("window.open(window.clickTag1, '_blank')");
+        });
+
+        it('ignores a dock pointing at a missing or hidden tray', async () => {
+            const pkg = await build([
+                strip({ id: 'pi-1', dockedIsiId: 'nope' }),
+                { id: 'isi-1', type: 'isiScroll', x: 0, y: 160, width: 300, height: 88, isiText: '<p>Safety</p>' },
+            ]);
+
+            expect(pkg.html).not.toContain('patient_link');
+            expect(pkg.html).toContain('<div id="el-pi-1" class="pi-strip">');
             expect(pkg.css).toContain('#el-isi-1 .isi_wrapper { height: 88px; }');
         });
     });

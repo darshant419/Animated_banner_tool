@@ -80,10 +80,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
         return 'none';
     }, [selectedElement, activeTab]);
 
-    /** True when the element already plays an exit preset, which supersedes endBehavior. */
-    const currentPresetExitId = selectedElement?.exitAnimation && selectedElement.exitAnimation !== 'none'
-        ? selectedElement.exitAnimation
-        : null;
 
     const currentDuration = selectedElement?.animationDuration || 0.8;
     const currentDelay = activeTab === 'in'
@@ -657,59 +653,6 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                             Reset to preset easing
                                         </button>
                                     )}
-                                </div>
-
-                                {/* End behavior */}
-                                <div className="space-y-2 mt-4 pt-4" style={{ borderTop: '1px solid #1a1a28' }}>
-                                    <label
-                                        className="text-[10px] font-semibold uppercase tracking-wider"
-                                        style={{ color: '#5a5a7a' }}
-                                    >
-                                        After animation ends
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-1">
-                                        {([
-                                            { id: 'stay' as const, label: 'Stay on banner' },
-                                            { id: 'hide' as const, label: 'Disappear' },
-                                        ]).map((opt) => {
-                                            const isActive = (selectedElement?.endBehavior || 'stay') === opt.id;
-                                            const isDisabled = !selectedElement || !!currentPresetExitId;
-                                            return (
-                                                <button
-                                                    key={opt.id}
-                                                    type="button"
-                                                    disabled={isDisabled}
-                                                    title={
-                                                        currentPresetExitId
-                                                            ? 'An exit animation is set, so it is used instead of the plain fade'
-                                                            : opt.id === 'stay'
-                                                                ? 'The element remains visible for the rest of the banner'
-                                                                : 'The element fades out when the banner ends'
-                                                    }
-                                                    onClick={() => {
-                                                        if (selectedElement) updateElement(selectedElement.id, { endBehavior: opt.id });
-                                                    }}
-                                                    className="py-1.5 text-[10px] font-medium rounded transition"
-                                                    style={{
-                                                        background: isActive ? `${accent.color}20` : '#13131e',
-                                                        border: `1px solid ${isActive ? accent.border : '#1e1e2e'}`,
-                                                        color: isActive ? accent.color : '#5a5a7a',
-                                                        opacity: isDisabled ? 0.4 : 1,
-                                                        cursor: isDisabled ? 'not-allowed' : 'pointer',
-                                                    }}
-                                                >
-                                                    {opt.label}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                    <p className="text-[9px] leading-snug" style={{ color: '#3a3a52' }}>
-                                        {currentPresetExitId
-                                            ? 'An exit animation is set, so it is used instead of the plain fade.'
-                                            : (selectedElement?.endBehavior || 'stay') === 'stay'
-                                                ? 'The element stays visible after its entrance.'
-                                                : 'The element fades out when the banner ends.'}
-                                    </p>
                                 </div>
                             </div>
 
