@@ -211,6 +211,39 @@ describe('buildBannerPackage ISI section links', () => {
         expect(pkg.html).not.toContain('window.open(window.clickTag1');
         expect(pkg.html).toContain('    var clickTag1 = "#";');
     });
+
+describe('buildBannerPackage ISI scrolling', () => {
+    const isiElement = (overrides: Partial<DesignElement> = {}): DesignElement => ({
+        id: 'isi-1',
+        type: 'isiScroll',
+        x: 0,
+        y: 162,
+        width: 300,
+        height: 88,
+        isiText: '<p>Report adverse events.</p>',
+        ...overrides,
+    });
+
+    it('exports a tray the user can scroll with the mouse wheel and the scrollbar indicator', async () => {
+        const pkg = await buildPackage([isiElement()]);
+
+        // Manual scroll controls reach the downloaded banner, matching the preview.
+        expect(pkg.js).toContain('tray.addEventListener("wheel", function (e) {');
+        expect(pkg.js).toContain('applyScroll(scrollY + e.deltaY * 0.5);');
+        expect(pkg.js).toContain('track.addEventListener("pointerdown", function (e) {');
+        expect(pkg.js).toContain('const dragScrollTo = (clientY) => {');
+    });
+
+    it('still wires manual scrolling when "Auto ISI Scroll" is turned off', async () => {
+        const pkg = await buildPackage([isiElement({ isiAutoStart: false })]);
+
+        // Auto-scroll clock is gone, but the tray stays wheel / scrollbar scrollable.
+        expect(pkg.js).toContain('tray.addEventListener("wheel", function (e) {');
+        expect(pkg.js).toContain('track.addEventListener("pointerdown", function (e) {');
+        expect(pkg.js).not.toContain('requestAnimationFrame(animate)');
+    });
+});
+
 });
 
 describe('buildBannerPackage end behaviour (stay / disappear)', () => {
@@ -245,6 +278,9 @@ describe('buildBannerPackage end behaviour (stay / disappear)', () => {
         expect(keyframes).toContain('@keyframes anim-el-stay-1');
         // It fades in and then holds; it never reaches opacity 0.
         expect(keyframes).not.toMatch(/100\.00% \{ opacity: 0;/);
+        // Regression: the terminal step pins the visible state at 100% so the
+        // layer does not fade back out over the banner tail in the download.
+        expect(keyframes).toMatch(/100\.00% \{ opacity: 1;/);
     });
 
     it('restarts the exported timeline on every cycle for a looping banner', async () => {
@@ -271,20 +307,22 @@ describe('buildBannerPackage banner click tag', () => {
         expect(pkg.js).toContain('node.closest("a")');
     });
 
-    it('keeps the "#" placeholder and no default destination when the switch is off', async () => {
+    it('omits the clickTag declaration (no "#" placeholder) and no default destination when the switch is off', async () => {
         const pkg = await buildPackage([bannerElement()], {
             useAsClickTag: false,
             clickTagUrl: 'https://www.example.com/landing',
         });
 
-        expect(pkg.html).toContain('    var clickTag = "#";');
+        expect(pkg.html).not.toContain('var clickTag = "#";');
         expect(pkg.js).toContain('var defaultUrl = "";');
     });
 
-    it('always declares clickTag, even for a banner without any configuration', async () => {
+    it('omits the banner clickTag declaration when nothing was configured', async () => {
         const pkg = await buildPackage([]);
 
-        expect(pkg.html).toContain('    var clickTag = "#";');
+        // The banner-level clickTag is left out entirely; the element link
+        // variables (clickTag1..3) are still always declared.
+        expect(pkg.html).not.toContain('var clickTag = "#";');
         expect(pkg.html).toContain('    var clickTag1 = "#";');
     });
 
@@ -294,7 +332,7 @@ describe('buildBannerPackage banner click tag', () => {
             clickTagUrl: 'javascript:alert(1)',
         });
 
-        expect(pkg.html).toContain('var clickTag = "#";');
+        expect(pkg.html).not.toContain('var clickTag = "#";');
         expect(pkg.html).not.toContain('javascript:alert(1)');
         expect(pkg.js).not.toContain('javascript:alert(1)');
     });

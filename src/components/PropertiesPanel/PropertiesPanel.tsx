@@ -181,6 +181,11 @@ export const PropertiesPanel: React.FC = () => {
     const exitValue = selectedElement?.exitAnimation || 'none';
     const entranceGroups = withCurrentOption(ENTRANCE_GROUPS, entranceValue);
     const exitGroups = withCurrentOption(EXIT_GROUPS, exitValue);
+    // The "After animation ends" (stay / disappear) choice is only meaningful
+    // for an element that plays an ENTRANCE with no EXIT: an exit preset owns
+    // the ending, so the plain choice is hidden in that case.
+    const hasEntrance = entranceValue !== 'none';
+    const hasExit = exitValue !== 'none';
 
     const wrapSelection = (before: string, after: string) => {
         if (!isiTextareaRef.current || !selectedElement) return;
@@ -1090,41 +1095,45 @@ return (
                         </div>
                     </div>
 
-                    {/* End Behavior: stay on banner vs. disappear when the banner ends */}
-                    <div>
-                        <label className="text-xs text-gray-400 mb-1 block">After animation ends</label>
-                        <div className="grid grid-cols-2 gap-2">
-                            {([
-                                { value: 'stay', label: 'Stay on banner', hint: 'Remains visible for the rest of the banner' },
-                                { value: 'hide', label: 'Disappear', hint: 'Fades out when the banner ends' },
-                            ] as const).map((opt) => {
-                                const active = (selectedElement.endBehavior || 'stay') === opt.value;
-                                return (
-                                    <button
-                                        key={opt.value}
-                                        type="button"
-                                        onClick={() => handleChange('endBehavior', opt.value)}
-                                        title={opt.hint}
-                                        className="px-2 py-1.5 text-[11px] font-medium rounded-lg border transition text-left"
-                                        style={{
-                                            background: active ? 'rgba(245, 158, 11, 0.12)' : '#1a1a21',
-                                            borderColor: active ? '#f59e0b' : '#2a2a35',
-                                            color: active ? '#fbbf24' : '#9ca3af',
-                                        }}
-                                    >
-                                        {opt.label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        <p className="text-[10px] text-gray-500 mt-1 leading-snug">
-                            {selectedElement.exitAnimation
-                                ? 'An exit animation is set, so it is used instead of the plain fade.'
-                                : (selectedElement.endBehavior || 'stay') === 'stay'
+                    {/* End Behavior: stay on banner vs. disappear when the banner ends.
+                        Only asked when the element plays an ENTRANCE but no EXIT: with
+                        an exit preset the exit itself owns the ending, so the plain
+                        stay/disappear choice would be meaningless (and is ignored by
+                        the export, which uses the exit instead). */}
+                    {hasEntrance && !hasExit && (
+                        <div>
+                            <label className="text-xs text-gray-400 mb-1 block">After animation ends</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {([
+                                    { value: 'stay', label: 'Stay on banner', hint: 'Remains visible for the rest of the banner' },
+                                    { value: 'hide', label: 'Disappear', hint: 'Fades out when the banner ends' },
+                                ] as const).map((opt) => {
+                                    const active = (selectedElement.endBehavior || 'stay') === opt.value;
+                                    return (
+                                        <button
+                                            key={opt.value}
+                                            type="button"
+                                            onClick={() => handleChange('endBehavior', opt.value)}
+                                            title={opt.hint}
+                                            className="px-2 py-1.5 text-[11px] font-medium rounded-lg border transition text-left"
+                                            style={{
+                                                background: active ? 'rgba(245, 158, 11, 0.12)' : '#1a1a21',
+                                                borderColor: active ? '#f59e0b' : '#2a2a35',
+                                                color: active ? '#fbbf24' : '#9ca3af',
+                                            }}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="text-[10px] text-gray-500 mt-1 leading-snug">
+                                {(selectedElement.endBehavior || 'stay') === 'stay'
                                     ? 'The element stays visible after its entrance.'
                                     : 'The element fades out when the banner ends.'}
-                        </p>
-                    </div>
+                            </p>
+                        </div>
+                    )}
 
                     {/* Stagger Sequence Shortcut */}
                     <div className="border-t border-[#232330] pt-2.5">

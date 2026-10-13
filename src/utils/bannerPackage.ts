@@ -153,6 +153,9 @@ export async function buildBannerPackage({
         url: clickTagUrl,
         target: clickTagTarget === '_self' ? '_self' : '_blank',
     };
+    // Only a real destination produces a `var clickTag = "…";` line; an
+    // unconfigured banner omits it instead of emitting a `"#"` placeholder.
+    const bannerClickTagDeclaration = buildBannerClickTagDeclaration(bannerClickTag);
     timelineEvents.push(buildBannerClickTagEvent(bannerClickTag));
 
     const htmlParts: string[] = [
@@ -168,7 +171,10 @@ export async function buildBannerPackage({
         '  <link rel="stylesheet" href="css/styles.css" />',
         '  <meta name="ad.size" content="width=' + canvasWidth + ',height=' + canvasHeight + '" />',
         '  <script type="text/javascript">',
-        '    ' + buildBannerClickTagDeclaration(bannerClickTag),
+        // The banner-level `var clickTag = "…";` is only emitted when a real
+        // destination is configured; otherwise it is left out entirely (no "#"
+        // placeholder), so ad platforms can still inject `window.clickTag`.
+        ...(bannerClickTagDeclaration ? ['    ' + bannerClickTagDeclaration] : []),
         ...buildClickTagDeclarations(linkPlan.declarations).map((line) => '    ' + line),
         '  </script>',
         '  <script src="js/main.js"></script>',
@@ -285,21 +291,22 @@ export async function buildBannerPackage({
                 ? ['#' + id + ' .patient_link a { color: inherit; }']
                 : [];
 
-            // The ISI tray scrolls ONLY if "Auto ISI Scroll" is enabled
-            // (isiAutoStart). It runs on its OWN clock (setTimeout + rAF loop),
-            // completely independent of the banner's master animation timeline.
-            // When disabled, the ISI stays static — just content + placed logo.
-            if (el.isiAutoStart !== false) {
-                timelineEvents.push(
-                    buildIsiScrollEvent({
-                        contentId: isiElemId,
-                        indicatorId: isiIndicatorId,
-                        startDelayMs: (el.isiStartDelay || 0) * 1000,
-                        scrollDuration: el.isiScrollDuration,
-                        holdDuration: el.isiHoldDuration,
-                    }),
-                );
-            }
+            // The ISI tray is ALWAYS wired for manual scrolling (mouse wheel over
+            // the tray + dragging the scrollbar indicator), matching the in-app
+            // preview. When "Auto ISI Scroll" is enabled (isiAutoStart) it ALSO
+            // runs its OWN scroll clock (setTimeout + rAF loop), completely
+            // independent of the banner's master animation timeline. When auto is
+            // off the tray stays parked at the top until the user scrolls it.
+            timelineEvents.push(
+                buildIsiScrollEvent({
+                    contentId: isiElemId,
+                    indicatorId: isiIndicatorId,
+                    startDelayMs: (el.isiStartDelay || 0) * 1000,
+                    scrollDuration: el.isiScrollDuration,
+                    holdDuration: el.isiHoldDuration,
+                    autoScroll: el.isiAutoStart !== false,
+                }),
+            );
 
             htmlBodyParts.push(
                 '          <div id="' + id + '" class="isi-main">',
@@ -335,10 +342,10 @@ export async function buildBannerPackage({
                 '#' + id + ' .pi-strip { box-sizing: border-box; width: 100%; height: 100%; display: flex; align-items: center; justify-content: ' + s.align + '; background: ' + s.background + '; border-radius: ' + s.borderRadius + 'px; padding: ' + s.paddingTop + 'px ' + s.paddingRight + 'px ' + s.paddingBottom + 'px ' + s.paddingLeft + 'px; overflow: hidden; }',
                 '#' + id + ' .pi-strip a { color: ' + (el.fill || '#000000') + '; font-size: ' + (el.fontSize || 10) + 'px; font-family: Arial, Helvetica, sans-serif; font-weight: bold; text-decoration: underline; text-underline-offset: 1px; }',
             );
-        } else if (el.type === 'rect') {
+        } else if ((el as any).type === 'rect') {
             htmlBodyParts.push('          <div id="' + id + '" class="element"></div>');
             cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: ' + (el.cornerRadius || 0) + 'px; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' }');
-        } else if (el.type === 'circle') {
+        } else if ((el as any).type === 'circle') {
             htmlBodyParts.push('          <div id="' + id + '" class="element"></div>');
             cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 100) + 'px; height: ' + (el.width || 100) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: 50%; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' }');
         } else if (el.type === 'text') {

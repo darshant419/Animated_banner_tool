@@ -250,6 +250,41 @@ describe('buildElementAnimationCss', () => {
         expect(result!.css[1]).toContain('rotate(0deg)');
         expect(result!.css[2]).toContain('rotate(30deg)');
     });
+
+    it('pins the final state at 100% so a "stay" layer does not fade back out', () => {
+        // Regression: with only a 0%->20% fade-in and NO 100% step, the browser
+        // synthesises a 100% keyframe from the element's own (opacity:0) style,
+        // so the layer faded in and then vanished over the banner tail.
+        const result = buildElementAnimationCss({
+            id: 'el-10',
+            frames: [frame({ time: 0, opacity: 0 }), frame({ time: 1, opacity: 100 })],
+            base: base(),
+            elX: 100,
+            elY: 80,
+            totalDuration: 5,
+        });
+
+        // The explicit terminal step repeats the last keyframe (opacity 1) at
+        // 100%, so the element holds visible for the rest of the banner.
+        expect(result!.css[result!.css.length - 2]).toBe('  100.00% { opacity: 1; transform: translate(0px, 0px); }');
+        expect(result!.css.join('\n')).not.toMatch(/100\\.00% \\{ opacity: 0;/);
+    });
+
+    it('does not add a duplicate 100% step when the last keyframe already ends there', () => {
+        const result = buildElementAnimationCss({
+            id: 'el-11',
+            frames: [frame({ time: 0, opacity: 0 }), frame({ time: 2, opacity: 0 })],
+            base: base(),
+            elX: 100,
+            elY: 80,
+            totalDuration: 2,
+        });
+
+        // The 100% frame is the real (opacity 0) end-fade; no extra hold step.
+        const hundredPct = result!.css.filter((line) => line.includes('100.00%'));
+        expect(hundredPct).toHaveLength(1);
+        expect(hundredPct[0]).toContain('opacity: 0');
+    });
 });
 
 describe('buildAnimationStartEvent', () => {
@@ -399,6 +434,57 @@ describe('video and ISI timeline entries', () => {
         expect(event).toContain('if (paused) { requestAnimationFrame(animate); return; }');
         expect(() => checkTimeline([event])).not.toThrow();
     });
+    it('wires the mouse wheel to scroll the ISI tray by hand', () => {
+        const event = buildIsiScrollEvent({
+            contentId: 'isi-content-1',
+            indicatorId: 'isi-indicator-1',
+            startDelayMs: 0,
+        });
+
+        // Wheel over the tray scrolls it, prevents the page from scrolling, and
+        // drives the same clamping writer the auto pass uses.
+        expect(event).toContain('tray.addEventListener("wheel", function (e) {');
+        expect(event).toContain('e.preventDefault();');
+        expect(event).toContain('applyScroll(scrollY + e.deltaY * 0.5);');
+        expect(event).toContain('}, { passive: false });');
+        expect(() => checkTimeline([event])).not.toThrow();
+    });
+
+    it('wires the scrollbar indicator to drag-scroll the ISI tray', () => {
+        const event = buildIsiScrollEvent({
+            contentId: 'isi-content-1',
+            indicatorId: 'isi-indicator-1',
+            startDelayMs: 0,
+        });
+
+        // Pointer-drag (or a click) on the track scrolls the tray manually.
+        expect(event).toContain('track.addEventListener("pointerdown", function (e) {');
+        expect(event).toContain('track.setPointerCapture(e.pointerId)');
+        expect(event).toContain('const dragScrollTo = (clientY) => {');
+        expect(event).toContain('track.addEventListener("pointermove", function (e) {');
+        expect(event).toContain('track.addEventListener("pointerup", endDrag);');
+        expect(() => checkTimeline([event])).not.toThrow();
+    });
+
+    it('keeps manual wheel / scrollbar scrolling even when auto-scroll is off', () => {
+        const event = buildIsiScrollEvent({
+            contentId: 'isi-content-1',
+            indicatorId: 'isi-indicator-1',
+            startDelayMs: 5000,
+            autoScroll: false,
+        });
+
+        // With auto off the clock/hover machinery is dropped and the entry fires
+        // immediately, but the manual handlers stay so the tray is still usable.
+        expect(event).toContain('{ time: 0, action: () => {');
+        expect(event).toContain('tray.addEventListener("wheel", function (e) {');
+        expect(event).toContain('track.addEventListener("pointerdown", function (e) {');
+        expect(event).not.toContain('requestAnimationFrame(animate)');
+        expect(event).not.toContain('paused');
+        expect(() => checkTimeline([event])).not.toThrow();
+    });
+
+
 });
 
 describe('buildMainJs', () => {
@@ -966,13 +1052,13 @@ describe('banner click tag (design-wide clickTag)', () => {
             );
         });
 
-        it('keeps the "#" placeholder when the switch is off or nothing was configured', () => {
-            expect(buildBannerClickTagDeclaration(banner({ enabled: false }))).toBe('var clickTag = "#";');
-            expect(buildBannerClickTagDeclaration(undefined)).toBe('var clickTag = "#";');
+        it('emits nothing (no "#" placeholder) when the switch is off or nothing was configured', () => {
+            expect(buildBannerClickTagDeclaration(banner({ enabled: false }))).toBe('');
+            expect(buildBannerClickTagDeclaration(undefined)).toBe('');
         });
 
         it('never exports a script URL', () => {
-            expect(buildBannerClickTagDeclaration(banner({ url: 'javascript:alert(1)' }))).toBe('var clickTag = "#";');
+            expect(buildBannerClickTagDeclaration(banner({ url: 'javascript:alert(1)' }))).toBe('');
         });
     });
 

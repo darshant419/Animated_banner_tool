@@ -200,6 +200,18 @@ export const buildElementAnimationCss = ({
     ordered.forEach((k) => {
         css.push('  ' + ((k.time / span) * 100).toFixed(2) + '% { ' + stepCss(k) + ' }');
     });
+    // Hold the element's final state through the end of the banner. When no
+    // 100% step is written the browser SYNTHESISES one from the element's own
+    // computed style -- which is `opacity: 0` for anything that animates in --
+    // so a "Stay on banner" layer would interpolate back to invisible across
+    // the banner tail and freeze there (the reported "it disappears after the
+    // animation" bug). An explicit terminal step pins the last keyframe's state
+    // at 100%; "Disappear"/exit layers already land their opacity-0 frame at the
+    // banner end, so this never overrides an intended fade-out.
+    const last = ordered[ordered.length - 1];
+    if ((last.time / span) * 100 < 99.995) {
+        css.push('  100.00% { ' + stepCss(last) + ' }');
+    }
     css.push('}');
 
     // An animation that begins from a hidden state also gets `opacity: 0` in
@@ -769,12 +781,18 @@ export const resolveBannerClickTagUrl = (banner?: BannerClickTag): string => {
 };
 
 /**
- * `var clickTag = "…";` — emitted once in the `<head>` of the exported HTML.
- * Ad platforms rewrite this declaration or set `window.clickTag` themselves,
- * so the variable always exists, even when the design never configured one.
+ * `var clickTag = "…";` — emitted once in the `<head>` of the exported HTML,
+ * but ONLY when a real destination is configured. Ad platforms rewrite this
+ * declaration or set `window.clickTag` themselves, so when the design never
+ * configured one we emit nothing rather than a `"#"` placeholder: the click
+ * handler still reads `window.clickTag` behind a `typeof` guard at click time,
+ * so an absent declaration simply leaves the banner non-clickable until a
+ * platform fills it in.
  */
-export const buildBannerClickTagDeclaration = (banner?: BannerClickTag): string =>
-    'var clickTag = ' + jsStringLiteral(resolveBannerClickTagUrl(banner) || '#') + ';';
+export const buildBannerClickTagDeclaration = (banner?: BannerClickTag): string => {
+    const url = resolveBannerClickTagUrl(banner);
+    return url ? 'var clickTag = ' + jsStringLiteral(url) + ';' : '';
+};
 
 /**
  * JS timeline entry that makes the whole banner the click area of the
@@ -910,13 +928,19 @@ export const buildVideoAutoplayEvent = (id: string): string =>
     '      } },';
 
 /**
- * JS timeline entry driving the ISI tray's own scroll clock. It is intentionally
- * independent of the banner timeline: it waits `startDelayMs`, then scrolls the
- * content top -> bottom over `scrollDuration` seconds, holds at the bottom for
- * `holdDuration` seconds, then snaps back to the top and repeats forever.
+ * JS timeline entry wiring the ISI tray's scrolling in the exported banner.
  *
- * Hovering the tray pauses the clock (and leaving resumes it from the same
- * spot), matching the in-app preview.
+ * The tray is ALWAYS manually scrollable, matching the in-app preview:
+ *  - the mouse wheel scrolls it up/down while the pointer is over the tray, and
+ *  - the iScroll-style scrollbar indicator can be dragged (or its track clicked)
+ *    to scroll by hand.
+ *
+ * When `autoScroll` is set (the "Auto ISI Scroll" toggle) the tray ALSO runs its
+ * own scroll clock — independent of the banner timeline: it waits `startDelayMs`,
+ * then scrolls the content top -> bottom over `scrollDuration` seconds, holds at
+ * the bottom for `holdDuration` seconds, then snaps back to the top and repeats.
+ * Hovering pauses that clock (leaving resumes it from the same spot), and any
+ * manual wheel / drag hands the clock back at the newly scrolled position.
  */
 export const buildIsiScrollEvent = (opts: {
     contentId: string;
@@ -926,48 +950,119 @@ export const buildIsiScrollEvent = (opts: {
     scrollDuration?: number;
     /** Seconds to hold at the bottom before resetting (defaults to 3). */
     holdDuration?: number;
+    /**
+     * When false the tray is not auto-scrolled — it stays parked at the top until
+     * the user scrolls it — but the manual wheel / scrollbar handlers remain.
+     */
+    autoScroll?: boolean;
 }): string => {
     const scrollDuration = Math.max(1, opts.scrollDuration || 60);
     const holdDuration = Math.max(0, opts.holdDuration ?? 3);
-    return (
-        '      { time: ' + Math.max(0, Math.round(opts.startDelayMs)) + ', action: () => {\n' +
-        '        const content = document.getElementById(' + jsStringLiteral(opts.contentId) + ');\n' +
-        '        const indicator = document.getElementById(' + jsStringLiteral(opts.indicatorId) + ');\n' +
-        '        if (content && content.parentElement) {\n' +
-        '          const parent = content.parentElement;\n' +
-        '          const maxScroll = content.scrollHeight - parent.clientHeight;\n' +
-        '          if (maxScroll > 0) {\n' +
-        '            const track = parent.querySelector(".iScrollVerticalScrollbar");\n' +
-        '            var elapsed = 0;\n' +
-        '            var last = null;\n' +
-        '            var paused = false;\n' +
-        '            // Hover freezes the tray; leaving resumes from the same spot.\n' +
-        '            const tray = content.closest(".isi-main") || parent;\n' +
-        '            tray.addEventListener("mouseenter", function () { paused = true; });\n' +
-        '            tray.addEventListener("mouseleave", function () { paused = false; });\n' +
-        '            const animate = (timestamp) => {\n' +
-        '              if (last === null) last = timestamp;\n' +
-        '              const dt = (timestamp - last) / 1000;\n' +
-        '              last = timestamp;\n' +
-        '              if (paused) { requestAnimationFrame(animate); return; }\n' +
-        '              elapsed += dt;\n' +
-        '              // ISI own clock: scroll top->bottom, hold at the bottom, then reset.\n' +
-        '              const cycle = ' + (scrollDuration + holdDuration) + ';\n' +
-        '              const phase = elapsed % cycle;\n' +
-        '              const progress = phase < ' + scrollDuration + ' ? phase / ' + scrollDuration + ' : 1;\n' +
-        '              content.style.transform = "translateY(" + (-maxScroll * progress) + "px)";\n' +
-        '              if (indicator && track) {\n' +
-        '                const indicatorY = progress * (track.clientHeight - (indicator.clientHeight || 13));\n' +
-        '                indicator.style.transform = "translateY(" + indicatorY + "px)";\n' +
-        '              }\n' +
-        '              requestAnimationFrame(animate);\n' +
-        '            };\n' +
-        '            requestAnimationFrame(animate);\n' +
-        '          }\n' +
-        '        }\n' +
-        '      } },'
+    const autoScroll = opts.autoScroll !== false;
+    const cycleSeconds = scrollDuration + holdDuration;
+    // Manual handlers attach immediately when there is no auto pass to wait for.
+    const time = autoScroll ? Math.max(0, Math.round(opts.startDelayMs)) : 0;
+    // Re-point the auto clock at a manual position so the pass resumes smoothly.
+    const resyncClock = autoScroll ? 'elapsed = (scrollY / maxScroll) * ' + scrollDuration + ';' : '';
+
+    const lines: string[] = [
+        '      { time: ' + time + ', action: () => {',
+        '        const content = document.getElementById(' + jsStringLiteral(opts.contentId) + ');',
+        '        const indicator = document.getElementById(' + jsStringLiteral(opts.indicatorId) + ');',
+        '        if (content && content.parentElement) {',
+        '          const parent = content.parentElement;',
+        '          const maxScroll = content.scrollHeight - parent.clientHeight;',
+        '          if (maxScroll > 0) {',
+        '            const track = parent.querySelector(".iScrollVerticalScrollbar");',
+        '            const tray = content.closest(".isi-main") || parent;',
+        '            var scrollY = 0;',
+    ];
+    if (autoScroll) {
+        lines.push('            var elapsed = 0;', '            var last = null;', '            var paused = false;');
+    }
+    lines.push(
+        // One writer for the tray position: it clamps to the scrollable range and
+        // keeps the content and the indicator in lockstep. The auto clock, the
+        // mouse wheel and the scrollbar drag all funnel through here.
+        '            const applyScroll = (px) => {',
+        '              scrollY = Math.max(0, Math.min(maxScroll, px));',
+        '              content.style.transform = "translateY(" + (-scrollY) + "px)";',
+        '              if (indicator && track) {',
+        '                const indicatorY = (scrollY / maxScroll) * (track.clientHeight - (indicator.clientHeight || 13));',
+        '                indicator.style.transform = "translateY(" + indicatorY + "px)";',
+        '              }',
+        '            };',
     );
+
+    if (autoScroll) {
+        lines.push(
+            '            // Hover freezes the tray; leaving resumes from the same spot.',
+            '            tray.addEventListener("mouseenter", function () { paused = true; });',
+            '            tray.addEventListener("mouseleave", function () { paused = false; });',
+        );
+    }
+    lines.push(
+        // Mouse wheel over the tray scrolls it by hand (and never scrolls the page).
+        '            tray.addEventListener("wheel", function (e) {',
+        '              e.preventDefault();',
+        '              applyScroll(scrollY + e.deltaY * 0.5);',
+    );
+    if (autoScroll) lines.push('              ' + resyncClock);
+    lines.push(
+        '            }, { passive: false });',
+        // Scrollbar indicator drag: pointer-drag the indicator (or click the
+        // track) to scroll up/down manually — user-driven, never automated.
+        '            if (track) {',
+        '              var dragging = false;',
+        '              const dragScrollTo = (clientY) => {',
+        '                const rect = track.getBoundingClientRect();',
+        '                if (rect.height <= 0) return;',
+        '                const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));',
+        '                applyScroll(ratio * maxScroll);',
+    );
+    if (autoScroll) lines.push('                ' + resyncClock);
+    lines.push(
+        '              };',
+        '              track.addEventListener("pointerdown", function (e) {',
+        '                dragging = true;',
+        '                if (track.setPointerCapture) { try { track.setPointerCapture(e.pointerId); } catch (err) {} }',
+        '                e.preventDefault();',
+        '                dragScrollTo(e.clientY);',
+        '              });',
+        '              track.addEventListener("pointermove", function (e) {',
+        '                if (dragging) dragScrollTo(e.clientY);',
+        '              });',
+        '              const endDrag = function (e) {',
+        '                if (!dragging) return;',
+        '                dragging = false;',
+        '                if (track.releasePointerCapture) { try { track.releasePointerCapture(e.pointerId); } catch (err) {} }',
+        '              };',
+        '              track.addEventListener("pointerup", endDrag);',
+        '              track.addEventListener("pointercancel", endDrag);',
+        '            }',
+    );
+    if (autoScroll) {
+        lines.push(
+            '            const animate = (timestamp) => {',
+            '              if (last === null) last = timestamp;',
+            '              const dt = (timestamp - last) / 1000;',
+            '              last = timestamp;',
+            '              if (paused) { requestAnimationFrame(animate); return; }',
+            '              elapsed += dt;',
+            '              // ISI own clock: scroll top->bottom, hold at the bottom, then reset.',
+            '              const cycle = ' + cycleSeconds + ';',
+            '              const phase = elapsed % cycle;',
+            '              const progress = phase < ' + scrollDuration + ' ? phase / ' + scrollDuration + ' : 1;',
+            '              applyScroll(maxScroll * progress);',
+            '              requestAnimationFrame(animate);',
+            '            };',
+            '            requestAnimationFrame(animate);',
+        );
+    }
+    lines.push('          }', '        }', '      } },');
+    return lines.join('\n');
 };
+
 
 /**
  * Assembles the exported `js/main.js`: clickTags + the animation timeline.
