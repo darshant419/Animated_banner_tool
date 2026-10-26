@@ -461,7 +461,7 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
                                             height: project.canvasHeight,
                                             border: '0',
                                             transform: `scale(${previewScale})`,
-                                            transformOrigin: 'top left',
+                                            transformOrigin: '50% 50%',
                                         }}
                                     />
                                 </div>

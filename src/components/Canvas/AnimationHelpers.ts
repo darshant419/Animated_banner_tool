@@ -1,7 +1,7 @@
 ﻿import gsap from 'gsap';
 import Konva from 'konva';
 import type { DesignElement, AnimationKeyframe } from '../../store/designStore';
-import { getElementBaseState, getElementKeyframes, presetToKeyframes } from '../../utils/keyframes';
+import { getElementBaseState, getElementKeyframes, getElementTransformOffset, presetToKeyframes } from '../../utils/keyframes';
 
 // Registry of per-board master-timeline seek callbacks so the Timeline can drive
 // every visible artboard's canvas at 60fps without forcing a global store update
@@ -56,6 +56,16 @@ export const buildElementTimeline = (
         scaleX: base.scaleX || 1,
         scaleY: base.scaleY || 1,
     };
+
+    // Apply the element's transform-origin (rotation pivot) as Konva offsetX/offsetY
+    // so spin/rotate animations pivot around the chosen center point, not the top-left.
+    // Set directly on the node (not via GSAP tween) so GSAP doesn't complain about
+    // unregistered Konva offset properties.
+    const { offsetX: baseOffsetX, offsetY: baseOffsetY } = getElementTransformOffset(el);
+    if (typeof node.offsetX === 'function') {
+        node.offsetX(baseOffsetX);
+        node.offsetY(baseOffsetY);
+    }
 
     // If the animation starts from a hidden/offset state (e.g. an entrance with a
     // delay), hold that pre-animation state from t=0 so the element stays hidden
@@ -197,7 +207,7 @@ export const buildMasterTimeline = (
 // Global active preview tracker so we can cancel isolated previews anytime
 let activePreviewTimeline: gsap.core.Timeline | null = null;
 let activePreviewNode: Konva.Node | null = null;
-let activePreviewBaseState: { x: number; y: number; opacity: number; rotation: number; scaleX: number; scaleY: number; shadowBlur: number } | null = null;
+let activePreviewBaseState: { x: number; y: number; opacity: number; rotation: number; scaleX: number; scaleY: number; shadowBlur: number; offsetX: number; offsetY: number } | null = null;
 
 /**
  * Executes an instant real-time live preview of an animation directly on the canvas element.
@@ -225,6 +235,8 @@ export const previewElementOnCanvas = (
         scaleX: node.scaleX(),
         scaleY: node.scaleY(),
         shadowBlur: typeof anyNode.shadowBlur === 'function' ? anyNode.shadowBlur() : 0,
+        offsetX: typeof node.offsetX === 'function' ? node.offsetX() : 0,
+        offsetY: typeof node.offsetY === 'function' ? node.offsetY() : 0,
     };
 
     const frames = presetToKeyframes(el, preset, delay, duration, easing);
@@ -283,6 +295,10 @@ export const stopActivePreview = () => {
         activePreviewNode.rotation(activePreviewBaseState.rotation);
         activePreviewNode.scaleX(activePreviewBaseState.scaleX);
         activePreviewNode.scaleY(activePreviewBaseState.scaleY);
+        if (typeof activePreviewNode.offsetX === 'function') {
+            activePreviewNode.offsetX(activePreviewBaseState.offsetX);
+            activePreviewNode.offsetY(activePreviewBaseState.offsetY);
+        }
         if (typeof anyNode.shadowBlur === 'function') {
             anyNode.shadowBlur(activePreviewBaseState.shadowBlur);
         }

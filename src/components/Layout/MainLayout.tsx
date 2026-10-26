@@ -92,7 +92,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
     const [showProjectsModal, setShowProjectsModal] = useState(false);
     const [campaignSelection, setCampaignSelection] = useState<Set<string>>(new Set());
     const [isAnimationStudioOpen, setIsAnimationStudioOpen] = useState(false);
-    const [animationStudioTab, setAnimationStudioTab] = useState<'in' | 'out' | 'sequence'>('in');
+    const [animationStudioTab, setAnimationStudioTab] = useState<'in' | 'out' | 'loop' | 'sequence'>('in');
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [showTemplateDialog, setShowTemplateDialog] = useState(false);
     const [savingTemplate, setSavingTemplate] = useState(false);

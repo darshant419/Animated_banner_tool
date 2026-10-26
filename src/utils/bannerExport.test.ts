@@ -47,6 +47,7 @@ const base = (overrides: Partial<ElementBaseState> = {}): ElementBaseState => ({
     scaleX: 1,
     scaleY: 1,
     blur: 0,
+    transformOrigin: '50% 50%',
     ...overrides,
 });
 

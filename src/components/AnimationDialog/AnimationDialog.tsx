@@ -3,7 +3,7 @@ import {
     X, Sparkles, Search, Layers,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
     ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight,
-    Dot, Check, Zap, FastForward,
+    Dot, Check, Zap, FastForward, RefreshCw,
 } from 'lucide-react';
 import { useDesignStore } from '../../store/designStore';
 import {
@@ -12,6 +12,7 @@ import {
     getDirectionVariants,
     getActiveDirection,
     resolvePresetForDirection,
+    isAnimistaLoop,
     type AnimationDirection,
 } from '../../utils/animations';
 import { applyStaggeredDelays, type StaggerOrder } from '../../utils/keyframes';
@@ -19,12 +20,13 @@ import { applyStaggeredDelays, type StaggerOrder } from '../../utils/keyframes';
 interface AnimationDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    initialTab?: 'in' | 'out' | 'sequence';
+    initialTab?: 'in' | 'out' | 'loop' | 'sequence';
 }
 
 // TheBrief-style color accents per animation type
 const TAB_META = {
     in: { color: '#1bbfa7', bg: '#1bbfa715', border: '#1bbfa730', label: 'Entrance', icon: <Zap size={13} /> },
+    loop: { color: '#9b7df8', bg: '#9b7df815', border: '#9b7df830', label: 'Loop & Emphasis', icon: <RefreshCw size={13} /> },
     out: { color: '#e4567d', bg: '#e4567d15', border: '#e4567d30', label: 'Exit', icon: <FastForward size={13} /> },
     sequence: { color: '#9b7df8', bg: '#9b7df815', border: '#9b7df830', label: 'Sequence', icon: <Layers size={13} /> },
 };
@@ -66,7 +68,7 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
 
     const selectedElement = elements.find((el) => el.id === selectedId);
 
-    const [activeTab, setActiveTab] = useState<'in' | 'out' | 'sequence'>(initialTab);
+    const [activeTab, setActiveTab] = useState<'in' | 'out' | 'loop' | 'sequence'>(initialTab);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
     const [staggerGap, setStaggerGap] = useState(0.2);
@@ -77,6 +79,13 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
         if (!selectedElement) return 'none';
         if (activeTab === 'in') return selectedElement.enterAnimation || selectedElement.animation || 'none';
         if (activeTab === 'out') return selectedElement.exitAnimation || 'none';
+        if (activeTab === 'loop') {
+            // Loop/emphasis presets live on `animation` (with `animationLoop`),
+            // but that field is also a legacy entrance fallback — only report it
+            // here when it really is a loop preset so the chip highlights correctly.
+            const main = selectedElement.animation;
+            return main && main !== 'none' && isAnimistaLoop(main) ? main : 'none';
+        }
         return 'none';
     }, [selectedElement, activeTab]);
 
@@ -84,6 +93,8 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
     const currentDuration = selectedElement?.animationDuration || 0.8;
     const currentDelay = activeTab === 'in'
         ? (selectedElement?.enterDelay ?? selectedElement?.animationDelay ?? 0)
+        : activeTab === 'loop'
+        ? (selectedElement?.animationDelay ?? 0)
         : (selectedElement?.exitDelay || 0);
     const currentEasing = activeTab === 'out'
         ? selectedElement?.exitEasing
@@ -125,6 +136,14 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                 animation: presetId === 'none' ? undefined : presetId,
                 animationLoop: false,
             });
+        } else if (activeTab === 'loop') {
+            // Emphasis/Loop presets (spin, pulse, float, ken burns…) are the
+            // element's continuous "main" animation. Store on `animation` and
+            // flag `animationLoop` so the timeline repeats them forever.
+            updateElement(selectedElement.id, {
+                animation: presetId === 'none' ? undefined : presetId,
+                animationLoop: presetId !== 'none',
+            });
         } else if (activeTab === 'out') {
             updateElement(selectedElement.id, {
                 exitAnimation: presetId === 'none' ? undefined : presetId,
@@ -163,6 +182,8 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
         elements.forEach((el) => {
             if (activeTab === 'in') {
                 updateElement(el.id, { enterAnimation: currentPreset, animation: currentPreset, animationDuration: currentDuration });
+            } else if (activeTab === 'loop') {
+                updateElement(el.id, { animation: currentPreset, animationLoop: true, animationDuration: currentDuration });
             } else if (activeTab === 'out') {
                 updateElement(el.id, { exitAnimation: currentPreset });
             }
@@ -253,7 +274,7 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                     className="flex items-center px-5 gap-1 shrink-0"
                     style={{ height: 46, background: '#0d0d16', borderBottom: '1px solid #1a1a28' }}
                 >
-                    {(['in', 'out', 'sequence'] as const).map((t) => {
+                    {(['in', 'loop', 'out', 'sequence'] as const).map((t) => {
                         const meta = TAB_META[t];
                         const active = activeTab === t;
                         return (

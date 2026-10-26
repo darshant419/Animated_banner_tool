@@ -411,6 +411,94 @@ const glitch = (sep: number) => (b: ElementBaseState, d: number, delay: number) 
 register('glitch-in-1', 'Digital Glitch In 1', 'Glitch & Blur', glitch(10), { type: 'in' });
 register('glitch-in-2', 'Digital Glitch In 2 (Hard)', 'Glitch & Blur', glitch(22), { type: 'in' });
 
+// ---- BLINK IN (opacity strobe) ----
+const blinkIn = (offs: number[]) => (b: ElementBaseState, d: number, delay: number): AnimationKeyframe[] => {
+    const frames: AnimationKeyframe[] = [kf(delay, { ...b, opacity: 0 })];
+    const n = offs.length;
+    offs.forEach((o, i) => frames.push(kf(delay + (d * (i + 1)) / (n + 1), { ...b, opacity: o / 100 })));
+    frames.push(kf(delay + d, { ...b, opacity: b.opacity }));
+    return frames;
+};
+register('blink-1', 'Blink In (Hard)', 'Glitch & Blur', blinkIn([0, 100, 0, 100, 0, 100]), { type: 'in' });
+register('blink-2', 'Blink In (Smooth)', 'Glitch & Blur', blinkIn([20, 100, 40, 100, 60, 100]), { type: 'in' });
+
+// ---- FOCUS IN (beyond the base "text-focus-in") ----
+register('focus-in-contract', 'Focus In Contract', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s + 12, opacity: 0, blur: 8 }, { mid: { letterSpacing: s - 2, blur: 1 }, extraEnd: { letterSpacing: s, blur: 0 } });
+}, { type: 'in' });
+register('focus-in-contract-bck', 'Focus In Contract (Back)', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s + 12, opacity: 0, scaleX: 2, scaleY: 2 }, { mid: { letterSpacing: s - 2, scaleX: 0.95, scaleY: 0.95 }, extraEnd: { letterSpacing: s } });
+}, { type: 'in' });
+register('focus-in-expand', 'Focus In Expand', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s - 12, opacity: 0, blur: 8 }, { mid: { letterSpacing: s + 2, blur: 1 }, extraEnd: { letterSpacing: s, blur: 0 } });
+}, { type: 'in' });
+register('focus-in-expand-fwd', 'Focus In Expand (Forward)', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s - 12, opacity: 0, scaleX: 0.8, scaleY: 0.8 }, { mid: { letterSpacing: s + 2, scaleX: 1.05, scaleY: 1.05 }, extraEnd: { letterSpacing: s } });
+}, { type: 'in' });
+
+// ---- TRACKING IN (remaining directional variants) ----
+register('tracking-in-contract-bck', 'Tracking In Contract (Back)', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s + 14, opacity: 0, scaleX: 2, scaleY: 2 }, { mid: { letterSpacing: s - 2 }, extraEnd: { letterSpacing: s } });
+}, { type: 'in' });
+register('tracking-in-contract-bck-top', 'Tracking In Contract Back (Top)', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s + 14, opacity: 0, scaleX: 2, scaleY: 2, y: b.y - 40 }, { mid: { letterSpacing: s - 2 }, extraEnd: { letterSpacing: s } });
+}, { type: 'in' });
+register('tracking-in-contract-bck-bottom', 'Tracking In Contract Back (Bottom)', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s + 14, opacity: 0, scaleX: 2, scaleY: 2, y: b.y + 40 }, { mid: { letterSpacing: s - 2 }, extraEnd: { letterSpacing: s } });
+}, { type: 'in' });
+register('tracking-in-expand-fwd', 'Tracking In Expand (Forward)', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s - 14, opacity: 0, scaleX: 0.7, scaleY: 0.7 }, { mid: { letterSpacing: s + 2 }, extraEnd: { letterSpacing: s } });
+}, { type: 'in' });
+register('tracking-in-expand-fwd-top', 'Tracking In Expand Fwd (Top)', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s - 14, opacity: 0, scaleX: 0.7, scaleY: 0.7, y: b.y - 40 }, { mid: { letterSpacing: s + 2 }, extraEnd: { letterSpacing: s } });
+}, { type: 'in' });
+register('tracking-in-expand-fwd-bottom', 'Tracking In Expand Fwd (Bottom)', 'Text & Typography', (b, d, delay, el) => {
+    const s = l(el);
+    return enterFrom(b, d, delay, { letterSpacing: s - 14, opacity: 0, scaleX: 0.7, scaleY: 0.7, y: b.y + 40 }, { mid: { letterSpacing: s + 2 }, extraEnd: { letterSpacing: s } });
+}, { type: 'in' });
+
+register('vibrate-3', 'Hard Vibration Alert', 'Emphasis & Loop', (b, d, delay) =>
+    cycle(b, d, delay, [{ x: b.x }, { x: b.x - 9 }, { x: b.x + 9 }, { x: b.x - 9 }, { x: b.x + 9 }, { x: b.x - 9 }, { x: b.x }]), { loop: true, type: 'loop' });
+
+// ---- SHADOW DROP / POP (element enters from an offset "cast shadow" position) ----
+const SHADOW_DIR: Record<string, [number, number]> = {
+    tl: [-24, -24], top: [0, -24], tr: [24, -24],
+    left: [-24, 0], center: [0, 0], right: [24, 0],
+    bl: [-24, 24], bottom: [0, 24], br: [24, 24],
+    tb: [0, -24], lr: [-24, 0],
+};
+Object.entries(SHADOW_DIR).forEach(([dir, [dx, dy]]) => {
+    register(`shadow-drop-${dir}`, `Shadow Drop (${dir.toUpperCase()})`, 'Shadow', (b, d, delay) =>
+        enterFrom(b, d, delay, { opacity: 0, x: b.x - dx, y: b.y - dy }, { extraEnd: { x: b.x, y: b.y } }), { type: 'in' });
+    register(`shadow-drop-2-${dir}`, `Shadow Drop 2X (${dir.toUpperCase()})`, 'Shadow', (b, d, delay) =>
+        enterFrom(b, d, delay, { opacity: 0, x: b.x - dx * 2, y: b.y - dy * 2 }, { extraEnd: { x: b.x, y: b.y } }), { type: 'in' });
+});
+Object.entries(SHADOW_DIR).forEach(([dir, [dx, dy]]) => {
+    register(`shadow-pop-${dir}`, `Shadow Pop (${dir.toUpperCase()})`, 'Shadow', (b, d, delay) => {
+        const start = delay > 0 ? delay : 0;
+        return [
+            kf(start, { ...b, opacity: b.opacity, x: b.x + dx, y: b.y + dy }),
+            kf(start + d * 0.35, { ...b, opacity: b.opacity, x: b.x - dx * 0.4, y: b.y - dy * 0.4 }),
+            kf(start + d, { ...b, opacity: b.opacity, x: b.x, y: b.y }),
+        ];
+    }, { type: 'in' });
+});
+
+// ---- TEXT POP UP (full directional set) ----
+Object.entries(SHADOW_DIR).forEach(([dir, [dx, dy]]) => {
+    register(`text-pop-up-${dir}`, `Text Pop Up (${dir.toUpperCase()})`, 'Text & Typography', (b, d, delay) =>
+        enterFrom(b, d, delay, { scaleX: 0.3, scaleY: 0.3, opacity: 0, x: b.x + dx * 0.6, y: b.y + dy * 0.6 }, { mid: { scaleX: 1.2, scaleY: 1.2 }, midAt: 0.5 }), { type: 'in' });
+});
+
 // ===========================================================================
 // 2. LOOP & EMPHASIS ANIMATIONS
 // ===========================================================================
@@ -475,6 +563,20 @@ register('spin', 'Continuous 360° Spin', 'Emphasis & Loop', (b, d, delay) =>
         { rotation: b.rotation },
         { rotation: b.rotation + 360 },
     ], 'none'), { loop: true, type: 'loop' });
+
+// ---- DIRECTIONAL SPINS ----
+
+register('spin-cw', 'Clockwise Spin', 'Emphasis & Loop', (b, d, delay) =>
+    cycle(b, d, delay, [
+        { rotation: b.rotation },
+        { rotation: b.rotation + 360 },
+    ], 'none'), { loop: true, type: 'loop', description: 'Continuous clockwise rotation' });
+
+register('spin-ccw', 'Anti-Clockwise Spin', 'Emphasis & Loop', (b, d, delay) =>
+    cycle(b, d, delay, [
+        { rotation: b.rotation },
+        { rotation: b.rotation - 360 },
+    ], 'none'), { loop: true, type: 'loop', description: 'Continuous anti-clockwise rotation' });
 
 // ---- KEN BURNS & BACKGROUND LOOPS ----
 const KEN_POS: Record<string, [number, number]> = {
@@ -559,7 +661,7 @@ const LEGACY: Record<string, string> = {
     slideInTop: 'Slide In Top', slideInBottom: 'Slide In Bottom', slideInLeft: 'Slide In Left',
     slideInRight: 'Slide In Right', slideInTopLeft: 'Slide In Top-Left', slideInTopRight: 'Slide In Top-Right',
     slideInBottomLeft: 'Slide In Bottom-Left', slideInBottomRight: 'Slide In Bottom-Right',
-    zoomIn: 'Zoom In', zoomOut: 'Zoom Out', pulse: 'Pulse (Loop)', spin: 'Spin', rotate360: 'Rotate 360°',
+    zoomIn: 'Zoom In', zoomOut: 'Zoom Out', pulse: 'Pulse (Loop)', spin: 'Spin', spinCw: 'Clockwise Spin', spinCcw: 'Anti-Clockwise Spin', rotate360: 'Rotate 360°',
     flip: 'Flip', shake: 'Shake', skew: 'Skew', float: 'Float (Loop)', bounce: 'Bounce (Loop)',
     swing: 'Swing (Loop)', continuousSlideX: 'Slide Horizontal (Loop)', continuousSlideY: 'Slide Vertical (Loop)',
 };
@@ -603,6 +705,7 @@ export const getElementBaseStateRef = (el: DesignElement): ElementBaseState => (
     scaleX: el.scaleX || 1,
     scaleY: el.scaleY || 1,
     blur: el.shadowBlur || 0,
+    transformOrigin: el.transformOrigin || '50% 50%',
 });
 
 export const isAnimistaLoop = (animation: string): boolean => ANIMISTA_ANIMATIONS[animation]?.loop === true;
@@ -640,9 +743,10 @@ export const getLoopAnimationGroups = () => {
 };
 
 /**
- * Tabs that surface a preset picker. `sequence` shows the whole catalog.
+ * Tabs that surface a preset picker. `sequence` shows the whole catalog,
+ * `loop` shows the Emphasis & Loop presets (spin, pulse, float, ken burns…).
  */
-export type AnimationTab = 'in' | 'out' | 'sequence';
+export type AnimationTab = 'in' | 'out' | 'loop' | 'sequence';
 
 /**
  * The single source of truth for "which presets belong on this tab".
@@ -652,6 +756,7 @@ export type AnimationTab = 'in' | 'out' | 'sequence';
 export const matchesAnimationTab = (def: AnimistaDef, tab: AnimationTab): boolean => {
     if (tab === 'in') return def.type === 'in' || (!def.type && !def.loop);
     if (tab === 'out') return def.type === 'out';
+    if (tab === 'loop') return def.type === 'loop' || def.loop === true;
     return true;
 };
 
@@ -663,7 +768,7 @@ export const getPresetsForTab = (tab: AnimationTab): AnimistaDef[] =>
  * Option groups for a preset `<select>`, grouped by category.
  * Used by the Properties panel so it lists exactly what the Studio lists.
  */
-export const getAnimationGroupsForTab = (tab: 'in' | 'out') => {
+export const getAnimationGroupsForTab = (tab: 'in' | 'out' | 'loop') => {
     const byCategory = new Map<string, AnimistaDef[]>();
     getPresetsForTab(tab).forEach((def) => {
         const bucket = byCategory.get(def.category);

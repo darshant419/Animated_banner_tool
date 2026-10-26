@@ -1,7 +1,7 @@
 import React, { useRef, useMemo } from 'react';
 import { useDesignStore, CLICK_TAG_NAMES, type LinkClickTag } from '../../store/designStore';
 import { EASINGS } from '../../utils/keyframes';
-import { getAnimationGroupsForTab, animationLabel } from '../../utils/animations';
+import { getAnimationGroupsForTab, animationLabel, isAnimistaLoop } from '../../utils/animations';
 import {
     buildClickTagPlanForElements,
     collectIsiTextAnchors,
@@ -27,6 +27,7 @@ import { uploadMediaAsset } from '../../services/storageService';
  */
 const ENTRANCE_GROUPS = getAnimationGroupsForTab('in');
 const EXIT_GROUPS = getAnimationGroupsForTab('out');
+const LOOP_GROUPS = getAnimationGroupsForTab('loop');
 
 /**
  * Older elements can still hold a legacy id (`fadeIn`, `zoomOut`, …) that is not
@@ -172,15 +173,21 @@ export const PropertiesPanel: React.FC = () => {
         }
     };
 
-    // Canonical entrance/exit values, read the same way the Animation Studio reads
-    // them so a preset picked in either surface shows up selected in the other.
+    // Canonical entrance/exit/loop values, read the same way the Animation Studio
+    // reads them so a preset picked in either surface shows up selected in the other.
     // `animation` / `animationDelay` are legacy fallbacks for older elements only.
+    // A loop/emphasis preset also lives on `animation` (flagged by `animationLoop`),
+    // so it must NOT be surfaced as the entrance value.
+    const mainPreset = selectedElement?.animation;
+    const isLoopMain = !!mainPreset && mainPreset !== 'none' && (selectedElement?.animationLoop === true || isAnimistaLoop(mainPreset));
     const entranceValue = selectedElement
-        ? selectedElement.enterAnimation || selectedElement.animation || 'none'
+        ? selectedElement.enterAnimation || (isLoopMain ? undefined : mainPreset) || 'none'
         : 'none';
     const exitValue = selectedElement?.exitAnimation || 'none';
+    const loopValue = isLoopMain ? (mainPreset as string) : 'none';
     const entranceGroups = withCurrentOption(ENTRANCE_GROUPS, entranceValue);
     const exitGroups = withCurrentOption(EXIT_GROUPS, exitValue);
+    const loopGroups = withCurrentOption(LOOP_GROUPS, loopValue);
     // The "After animation ends" (stay / disappear) choice is only meaningful
     // for an element that plays an ENTRANCE with no EXIT: an exit preset owns
     // the ending, so the plain choice is hidden in that case.
@@ -778,6 +785,44 @@ return (
                             />
                         </div>
                     </div>
+
+                    {/* Rotation Center / Transform Origin */}
+                    <div className="mt-3">
+                        <label className="text-xs text-gray-400 mb-2 block">Rotation Center</label>
+                        <div className="grid grid-cols-3 gap-1" style={{ width: '120px', margin: '0 auto' }}>
+                            {[
+                                { id: '0% 0%', label: 'TL', desc: 'Top-Left' },
+                                { id: '50% 0%', label: 'T', desc: 'Top' },
+                                { id: '100% 0%', label: 'TR', desc: 'Top-Right' },
+                                { id: '0% 50%', label: 'L', desc: 'Left' },
+                                { id: '50% 50%', label: 'C', desc: 'Center' },
+                                { id: '100% 50%', label: 'R', desc: 'Right' },
+                                { id: '0% 100%', label: 'BL', desc: 'Bottom-Left' },
+                                { id: '50% 100%', label: 'B', desc: 'Bottom' },
+                                { id: '100% 100%', label: 'BR', desc: 'Bottom-Right' },
+                            ].map((pos) => {
+                                const active = selectedElement.transformOrigin === pos.id;
+                                return (
+                                    <button
+                                        key={pos.id}
+                                        type="button"
+                                        onClick={() => handleChange('transformOrigin', pos.id)}
+                                        title={pos.desc}
+                                        className={`w-6 h-6 rounded text-[10px] font-medium transition border border-transparent ${
+                                            active
+                                                ? 'bg-amber-500/30 border-amber-500 text-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.4)]'
+                                                : 'bg-[#1a1a21] border-[#2a2a35] text-gray-400 hover:bg-[#252533] hover:border-[#3a3a4a] hover:text-white'
+                                        }`}
+                                    >
+                                        {pos.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="text-[10px] text-gray-500 mt-1 text-center">
+                            Pivot point for spin & rotate animations
+                        </p>
+                    </div>
                 </div>
 
                 {/* Appearance */}
@@ -1017,6 +1062,41 @@ return (
                                 onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'in' } }))}
                                 className="p-1.5 rounded-lg bg-[#20202c] border border-[#2e2e40] text-amber-400 hover:bg-[#2a2a3a] transition shrink-0"
                                 title="Browse all presets in Animation Studio"
+                            >
+                                <Sparkles size={14} />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Loop & Emphasis Animation Dropdown (spin, pulse, float, ken burns…) */}
+                    <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Loop &amp; Emphasis</label>
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={loopValue}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    handleChange('animation', val === 'none' ? undefined : val);
+                                    handleChange('animationLoop', val !== 'none');
+                                }}
+                                className="flex-1 border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                            >
+                                <option value="none">None</option>
+                                {loopGroups.map((group) => (
+                                    <optgroup key={group.label} label={group.label}>
+                                        {group.options.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                                {opt.label}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                ))}
+                            </select>
+
+                            <button
+                                onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'loop' } }))}
+                                className="p-1.5 rounded-lg bg-[#20202c] border border-[#2e2e40] text-amber-400 hover:bg-[#2a2a3a] transition shrink-0"
+                                title="Browse all loop & emphasis presets in Animation Studio"
                             >
                                 <Sparkles size={14} />
                             </button>

@@ -1,6 +1,48 @@
 import type { AnimationKeyframe, DesignElement } from '../store/designStore';
 import { ANIMISTA_ANIMATIONS, animationLabel } from './animations';
 
+/**
+ * Parses a CSS transform-origin string (e.g. "50% 50%", "center", "top left",
+ * "100% 0%", "right bottom") into pixel offsets (offsetX, offsetY) relative to
+ * the element's width/height. Konva uses `offsetX`/`offsetY` as the pivot point
+ * for rotation/scale, so this lets us rotate around any chosen center point.
+ *
+ * Supported keywords: center, top, bottom, left, right and their combos
+ * (top-left, top-right, bottom-left, bottom-right). Percentages and plain
+ * numbers are also supported. Defaults to 50% 50% (center).
+ */
+export const parseTransformOrigin = (
+    origin: string | undefined,
+    width: number,
+    height: number,
+): { offsetX: number; offsetY: number } => {
+    const o = (origin || '50% 50%').trim();
+    const parts = o.split(/\s+/);
+    const hPart = parts[0] || '50%';
+    const vPart = parts[1] || parts[0] || '50%';
+
+    const resolve = (part: string, dim: number): number => {
+        const p = part.trim().toLowerCase();
+        if (p === 'center' || p === '50%') return dim * 0.5;
+        if (p === 'left' || p === 'top' || p === '0%') return 0;
+        if (p === 'right' || p === 'bottom' || p === '100%') return dim;
+        const m = /^([\d.]+)%$/.exec(p);
+        if (m) return (parseFloat(m[1]) / 100) * dim;
+        const n = parseFloat(p);
+        if (!Number.isNaN(n)) return n;
+        return dim * 0.5;
+    };
+
+    return {
+        offsetX: resolve(hPart, width),
+        offsetY: resolve(vPart, height),
+    };
+};
+
+/** Convenience: resolve offsetX/offsetY directly from a DesignElement. */
+export const getElementTransformOffset = (el: DesignElement): { offsetX: number; offsetY: number } =>
+    parseTransformOrigin(el.transformOrigin, el.width || 300, el.height || 200);
+
 export const EASINGS: Array<{ id: string; label: string; desc?: string }> = [
     { id: 'power1.inOut', label: 'Ease (default)', desc: 'Balanced acceleration & deceleration' },
     { id: 'linear', label: 'Linear', desc: 'Constant uniform velocity' },
@@ -29,6 +71,7 @@ export interface ElementBaseState {
     scaleX: number;
     scaleY: number;
     blur: number;
+    transformOrigin: string;
 }
 
 export const getElementBaseState = (el: DesignElement): ElementBaseState => ({
@@ -39,6 +82,7 @@ export const getElementBaseState = (el: DesignElement): ElementBaseState => ({
     scaleX: el.scaleX || 1,
     scaleY: el.scaleY || 1,
     blur: el.shadowBlur || 0,
+    transformOrigin: el.transformOrigin || '50% 50%',
 });
 
 const uid = () => `kf-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;

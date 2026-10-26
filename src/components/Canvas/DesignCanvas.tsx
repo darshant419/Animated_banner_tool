@@ -10,7 +10,7 @@ import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
 import { ISIOverlay } from './ISIOverlay';
 import { buildMasterTimeline, registerMasterSeeker, unregisterMasterSeeker } from './AnimationHelpers';
-import { getElementBaseState } from '../../utils/keyframes';
+import { getElementBaseState, getElementTransformOffset } from '../../utils/keyframes';
 import { getPiStripStyle } from '../../utils/bannerExport';
 import { buildBannerPackage, zipBannerPackage } from '../../utils/bannerPackage';
 import { buildClickTagPlanForElements, linkKey } from '../../utils/bannerExport';
@@ -74,12 +74,17 @@ const ElementShape = memo(function ElementShape({
   onEditText,
   onEditISI,
 }: ShapeProps) {
-const commonProps = {
+  const { offsetX, offsetY } = getElementTransformOffset(el);
+
+  const commonProps = {
     id: el.id,
     x: el.x,
     y: el.y,
     width: el.width || 300,
     height: el.height || 200,
+    rotation: el.rotation || 0,
+    offsetX,
+    offsetY,
     fill: el.fill,
     draggable: !el.locked && !isPlaying,
     visible: el.visible !== false,

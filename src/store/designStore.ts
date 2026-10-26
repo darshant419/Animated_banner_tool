@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { migrateIsiHeaderToPiStrip } from '../utils/piMigration';
 
 export type ElementType = 'text' | 'image' | 'video' | 'isiScroll' | 'shape' | 'html' | 'piStrip';
 
@@ -15,6 +14,16 @@ export interface AnimationKeyframe {
     rotation?: number;
     scaleX?: number;
     scaleY?: number;
+    /** Skew in degrees (CSS skew()). Positive X leans top to the right. */
+    skewX?: number;
+    skewY?: number;
+    /**
+     * Fill/background color at this keyframe (hex). Used by color-cycling
+     * presets (e.g. animista `color-change-*`) so an element's color can be
+     * animated. Konva exposes `fill()` for shapes/text; the CSS exporter maps
+     * this to `background-color`.
+     */
+    fill?: string;
     /** Pixels (or other CSS units) */
     letterSpacing?: number;
     /** CSS blur radius in pixels (The Brief's 5th keyframe action) */
@@ -121,6 +130,8 @@ export interface DesignElement {
     /** Easing curve overrides applied to the generated entrance / exit keyframes. */
     enterEasing?: string;
     exitEasing?: string;
+    /** Rotation pivot (transform origin), e.g. "50% 50%" (center), "0% 0%" (top-left), "100% 100%" (bottom-right). Defaults to center. */
+    transformOrigin?: string;
     /**
      * What happens to the element once its animation finishes.
      * - `stay` (default): the element remains visible at its resting state for

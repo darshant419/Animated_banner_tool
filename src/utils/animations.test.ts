@@ -28,6 +28,27 @@ describe('animation catalog synchronization', () => {
         expect(panelIds.length).toBeGreaterThan(0);
         expect(new Set(panelIds)).toEqual(new Set(studioIds));
     });
+
+    it('offers loop & emphasis presets (e.g. spin) on the loop tab in both surfaces', () => {
+        const panelIds = optionIds(getAnimationGroupsForTab('loop'));
+        const studioIds = getPresetsForTab('loop').map((preset) => preset.id);
+
+        expect(studioIds.length).toBeGreaterThan(0);
+        // The reported bug: `spin` was registered but never surfaced with controls.
+        expect(studioIds).toContain('spin');
+        expect(new Set(panelIds)).toEqual(new Set(studioIds));
+    });
+
+    it('keeps loop presets off the entrance and exit tabs', () => {
+        const loopIds = new Set(getPresetsForTab('loop').map((preset) => preset.id));
+        const entranceIds = new Set(getPresetsForTab('in').map((preset) => preset.id));
+        const exitIds = new Set(getPresetsForTab('out').map((preset) => preset.id));
+
+        loopIds.forEach((id) => {
+            expect(entranceIds.has(id)).toBe(false);
+            expect(exitIds.has(id)).toBe(false);
+        });
+    });
 });
 
 describe('animation direction resolution', () => {
