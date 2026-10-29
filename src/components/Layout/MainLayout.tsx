@@ -297,7 +297,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
     return (
         <div className="flex flex-col h-screen overflow-hidden bg-[#1e1e26]">
             {/* Header */}
-            <header className="h-14 bg-black border-b border-white/10 flex items-center px-4 gap-3 shrink-0">
+            <header className="h-14 bg-black border-b border-white/10 flex items-center px-3 gap-2 sm:gap-3 shrink-0">
                 <button
                     onClick={() => navigate('/')}
                     className="p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition shrink-0"
@@ -312,7 +312,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                     </div>
                     <div>
                         <div className="font-bold text-white leading-none">Banner Studio</div>
-                        <div className="text-[10px] text-gray-400 mt-0.5">Animated HTML5 builder</div>
+                        <div className="text-[10px] text-gray-400 mt-0.5 hidden sm:block">Animated HTML5 builder</div>
                     </div>
                     <span className={`ml-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${mode === 'emr'
                         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
@@ -328,7 +328,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                             title="Switch mode"
                         >
                             <RefreshCcw size={12} />
-                            Switch
+                            <span className="hidden sm:inline">Switch</span>
                         </button>
                     )}
                     <span
@@ -354,7 +354,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                         title="Browse saved banner projects"
                     >
                         <FolderOpen size={13} className="text-red-400" />
-                        <span>Projects</span>
+                        <span className="hidden sm:inline">Projects</span>
                     </button>
 
                     <input
@@ -362,7 +362,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                         value={projectName}
                         onChange={(e) => setProjectName(e.target.value)}
                         placeholder="Untitled Banner"
-                        className="bg-transparent hover:bg-white/5 focus:bg-[#15151c] border border-transparent hover:border-white/10 focus:border-red-500 rounded px-2 py-1 text-xs font-semibold text-gray-100 focus:outline-none transition w-40 max-w-[180px] truncate"
+                        className="bg-transparent hover:bg-white/5 focus:bg-[#15151c] border border-transparent hover:border-white/10 focus:border-red-500 rounded px-2 py-1 text-xs font-semibold text-gray-100 focus:outline-none transition w-[110px] sm:w-40 max-w-[180px] truncate"
                         title="Click to rename banner project"
                     />
 
@@ -437,10 +437,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
 
                     <button
                         onClick={() => setShowCampaign(true)}
-                        className="px-2 py-1 rounded-md text-xs font-medium border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition flex items-center gap-1"
+                        className="hidden sm:flex px-2 py-1 rounded-md text-xs font-medium border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition items-center gap-1"
                         title="Generate multiple banner sizes from one design"
                     >
-                        <Layers size={12} /> Multi-size
+                        <Layers size={12} />
                     </button>
 
                     <div className="relative">
@@ -475,7 +475,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
 
                 <div className="h-6 w-px bg-white/10" />
 
-                <div className="flex items-center gap-1">
+                <div className="hidden sm:flex items-center gap-1">
                     <button
                         onClick={undo}
                         disabled={past.length === 0}
@@ -505,19 +505,19 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                             }`}
                     >
                         {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-                        {isPlaying ? 'Stop' : 'Preview'}
+                        <span className="hidden sm:inline">{isPlaying ? 'Stop' : 'Preview'}</span>
                     </button>
                     <button
                         onClick={() => window.dispatchEvent(new Event('export-html'))}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition"
                     >
-                        <FileCode2 size={14} /> Export HTML
+                        <FileCode2 size={14} /><span className="ml-1 hidden sm:inline">Export HTML</span>
                     </button>
                     <button
                         onClick={() => window.dispatchEvent(new Event('export-canvas'))}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition"
                     >
-                        <Download size={14} /> PNG
+                        <Download size={14} /><span className="ml-1 hidden sm:inline">PNG</span>
                     </button>
                 </div>
             </header>
@@ -541,7 +541,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
             {/* Multi-size campaign modal */}
             {showCampaign && (
                 <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40" onClick={() => setShowCampaign(false)}>
-                    <div className="bg-[#15151c] rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-[#15151c] rounded-xl shadow-2xl w-full max-w-[560px] sm:max-w-[720px] mx-2 sm:mx-0 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2a2a35]">
                             <div>
                                 <h3 className="font-bold text-gray-50">Multi-size campaign</h3>

@@ -371,7 +371,7 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                             {/* Preset grid */}
                             <div
                                 className="flex-1 p-3 overflow-y-auto"
-                                style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, alignContent: 'start', background: '#0c0c15' }}
+                                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8, alignContent: 'start', background: '#0c0c15' }}
                             >
                                 {/* None card */}
                                 <button

@@ -2,6 +2,7 @@ import React from 'react';
 import { Layout, Home, Images, LayoutTemplate, FolderOpen, Plus, Cloud, HardDrive } from 'lucide-react';
 import { isFirebaseConfigured } from '../../services/firebase';
 import { navigate } from '../../router/hashRouter';
+import { FirebaseStatusBanner } from './FirebaseStatusBanner';
 
 interface DashboardShellProps {
     /** Current route path, used to highlight the active nav item. */
@@ -31,6 +32,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ activePath, chil
 
     return (
         <div className="min-h-screen bg-[#1e1e26] text-gray-100 flex flex-col">
+            <FirebaseStatusBanner />
             <header className="h-14 bg-black border-b border-white/10 flex items-center px-4 gap-4 shrink-0 sticky top-0 z-40">
                 <button
                     onClick={() => navigate('/')}

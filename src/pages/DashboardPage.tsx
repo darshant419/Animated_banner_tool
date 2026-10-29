@@ -72,7 +72,7 @@ export const DashboardPage: React.FC = () => {
 
     return (
         <DashboardShell activePath="/">
-            <div className="mx-auto max-w-7xl px-6 py-8">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-gray-50">Dashboard</h1>
@@ -247,7 +247,7 @@ export const DashboardPage: React.FC = () => {
                                     No images uploaded yet — add images in the editor or the image library.
                                 </p>
                             ) : (
-                                <div className="mt-4 grid grid-cols-4 gap-2">
+                                <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                                     {assets.slice(0, 8).map((asset) => (
                                         <img
                                             key={asset.id}

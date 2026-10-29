@@ -495,7 +495,7 @@ export const PropertiesPanel: React.FC = () => {
 
 
 return (
-    <div className="w-80 bg-[#15151c] border-l border-[#2a2a35] flex flex-col overflow-y-auto z-10">
+    <div className="w-72 sm:w-80 bg-[#15151c] border-l border-[#2a2a35] flex flex-col overflow-y-auto z-10">
         <div className="p-4 border-b border-[#232330]">
             <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-gray-100">Properties</h2>
@@ -1393,7 +1393,7 @@ return (
 
                         <div>
                             <label className="text-[10px] text-gray-400 uppercase font-bold tracking-tight mb-1 block">Padding</label>
-                            <div className="grid grid-cols-4 gap-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                 {PI_PAD_FIELDS.map((field) => (
                                     <div key={field.key}>
                                         <label className="text-[10px] text-gray-500 mb-1 block">{field.label}</label>
@@ -1724,7 +1724,7 @@ return (
                                                 </div>
                                             </div>
                                             {isiPaddingExpanded && (
-                                                <div className="grid grid-cols-4 gap-2 pt-2 border-t border-[#232330]">
+                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#232330]">
                                                     <div>
                                                         <label className="text-[10px] text-gray-400 mb-1 block">Top</label>
                                                         <input
@@ -1800,7 +1800,7 @@ return (
                                                 </div>
                                             </div>
                                             {isiMarginExpanded && (
-                                                <div className="grid grid-cols-4 gap-2 pt-2 border-t border-[#232330]">
+                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#232330]">
                                                     <div>
                                                         <label className="text-[10px] text-gray-400 mb-1 block">Top</label>
                                                         <input

@@ -784,7 +784,7 @@ export const DesignCanvas: React.FC = () => {
     }`;
 
   return (
-    <div className="flex-1 bg-gray-100 flex flex-col items-center justify-start overflow-auto p-8 pt-16 relative">
+    <div className="flex-1 bg-gray-100 flex flex-col items-center justify-start overflow-auto p-4 sm:p-6 md:p-8 pt-10 sm:pt-14 md:pt-16 relative">
       {/* View mode toggle */}
       <div className="absolute top-4 right-4 z-50 flex items-center gap-1 bg-[#15151c] border border-[#2a2a35] rounded-lg p-1 shadow-lg">
         <button
@@ -805,7 +805,7 @@ export const DesignCanvas: React.FC = () => {
 
       {multiArtboardView ? (
         /* Multi-size view G�� every artboard live & editable side by side */
-        <div className="w-full min-h-full flex flex-wrap items-start justify-center gap-x-8 gap-y-10">
+        <div className="w-full min-h-full flex flex-wrap items-start justify-center gap-x-4 sm:gap-x-6 md:gap-x-8 gap-y-6 sm:gap-y-8 md:gap-y-10">
           {artboards.map((ab) => (
             <div
               key={ab.id}
