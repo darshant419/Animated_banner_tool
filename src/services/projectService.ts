@@ -25,6 +25,7 @@ export interface FirebaseProject {
     canvasBackground: string;
     canvasBackgroundImage?: string;
     artboards: Artboard[];
+    activeArtboardId?: string;
     elements: DesignElement[];
     /**
      * Banner-level click tag ("Use as click tag" + URL + target): the exported
@@ -131,6 +132,7 @@ export async function loadProject(id: string): Promise<FirebaseProject | null> {
             canvasBackground: data.canvasBackground || '#ffffff',
             canvasBackgroundImage: data.canvasBackgroundImage,
             artboards: data.artboards || [],
+            activeArtboardId: data.activeArtboardId,
             elements: data.elements || [],
             useAsClickTag: data.useAsClickTag ?? false,
             clickTagUrl: data.clickTagUrl || '',

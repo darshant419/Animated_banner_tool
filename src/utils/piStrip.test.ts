@@ -61,7 +61,7 @@ describe('standalone PI strip element', () => {
             const pkg = await build([strip({ piPaddingLeft: 12 })]);
 
             expect(pkg.html).toContain('<div id="el-pi-1" class="pi-strip">Prescribing Information</div>');
-            expect(pkg.css).toContain('#el-pi-1 { position: absolute; left: 0px; top: 140px; width: 300px; height: 20px; z-index: 0; }');
+            expect(pkg.css).toContain('#el-pi-1 { position: absolute; left: -150px; top: 130px; width: 300px; height: 20px; z-index: 0; }');
             expect(pkg.css).toContain('padding: 4px 4px 4px 12px;');
         });
 
@@ -71,8 +71,8 @@ describe('standalone PI strip element', () => {
                 strip({ id: 'pi-2', y: 160 }),
             ]);
 
-            expect(pkg.css).toContain('#el-pi-1 { position: absolute; left: 0px; top: 140px; width: 300px; height: 20px; z-index: 0; }');
-            expect(pkg.css).toContain('#el-pi-2 { position: absolute; left: 0px; top: 160px; width: 300px; height: 20px; z-index: 1; }');
+            expect(pkg.css).toContain('#el-pi-1 { position: absolute; left: -150px; top: 130px; width: 300px; height: 20px; z-index: 0; }');
+            expect(pkg.css).toContain('#el-pi-2 { position: absolute; left: -150px; top: 150px; width: 300px; height: 20px; z-index: 1; }');
         });
 
         it('wraps the label in its click-tag anchor when it has a link', async () => {

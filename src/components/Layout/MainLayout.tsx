@@ -18,7 +18,6 @@ import {
     FolderOpen,
     Loader2,
     Check,
-    Cloud,
     Home,
     Bookmark,
     ExternalLink,
@@ -35,7 +34,6 @@ import type { AppMode } from '../ModeSelect/ModeSelect';
 import { getTemplateById } from '../../templates/emrTemplates';
 import { saveProjectToFirestore } from '../../services/projectService';
 import { uploadProjectThumbnail } from '../../services/storageService';
-import { isFirebaseConfigured } from '../../services/firebase';
 import { saveBannerTemplate } from '../../services/templateService';
 import { collectBannerImageUrls } from '../../utils/bannerImages';
 import { SaveTemplateDialog, type SaveTemplateValues } from '../Templates/SaveTemplateDialog';
@@ -97,8 +95,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
     const [showTemplateDialog, setShowTemplateDialog] = useState(false);
     const [savingTemplate, setSavingTemplate] = useState(false);
     const [templateSaved, setTemplateSaved] = useState(false);
-
-    const isCloud = isFirebaseConfigured();
 
     useEffect(() => {
         const handleOpenStudio = (e: Event) => {
@@ -178,6 +174,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                 clickTagUrl,
                 clickTagTarget,
                 artboards,
+                activeArtboardId,
                 elements,
                 imageUrls: collectBannerImageUrls(elements, canvasBackgroundImage),
                 version: 1,
@@ -331,17 +328,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
                             <span className="hidden sm:inline">Switch</span>
                         </button>
                     )}
-                    <span
-                        className={`hidden md:flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                            isCloud
-                                ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                        }`}
-                        title={isCloud ? 'Saving to Firebase Firestore & Storage' : 'Local mode — add Firebase keys in .env for cloud sync'}
-                    >
-                        <Cloud size={10} />
-                        {isCloud ? 'Firebase' : 'Local'}
-                    </span>
                 </div>
 
                 <div className="h-6 w-px bg-white/10" />

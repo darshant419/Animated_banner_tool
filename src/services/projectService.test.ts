@@ -34,6 +34,7 @@ const makeProject = () => ({
     canvasBackground: '#ffffff',
     canvasBackgroundImage: undefined,
     artboards: [],
+    activeArtboardId: 'art-1',
     elements: [
         {
             id: 'el-1',
@@ -74,6 +75,7 @@ describe('projectService Firestore saves', () => {
         expect(id).toBeTruthy();
         expect(payload).not.toHaveProperty('thumbnailUrl');
         expect(payload).not.toHaveProperty('canvasBackgroundImage');
+        expect(payload.activeArtboardId).toBe('art-1');
         expect(payload.elements[0].anim.keyframes[0]).not.toHaveProperty('x');
         expect(payload.elements[0].anim.keyframes[0].easing).toBe('power2.out');
         expect(serverTimestampMock).toHaveBeenCalled();

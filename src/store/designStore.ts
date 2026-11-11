@@ -413,6 +413,7 @@ interface DesignState {
         clickTagUrl?: string;
         clickTagTarget?: LinkTarget;
         artboards?: Artboard[];
+        activeArtboardId?: string;
         elements?: DesignElement[];
     }) => void;
 
@@ -1034,20 +1035,44 @@ export const useDesignStore = create<DesignState>((set) => ({
     loadProjectState: (project) =>
         set(() => {
             const cleanElements = (project.elements || []).map((el) => ({ ...el, visible: el.visible !== false }));
-            const artboards = (project.artboards && project.artboards.length > 0)
-                ? project.artboards
-                : [{ id: 'art-1', label: `${project.canvasWidth}x${project.canvasHeight}`, width: project.canvasWidth, height: project.canvasHeight, elements: cleanElements }];
+            const artboards = (project.artboards || []).map((artboard) => ({
+                ...artboard,
+                elements: (artboard.elements || []).map((el) => ({ ...el, visible: el.visible !== false })),
+            }));
+            const matchingBoard = artboards.find(
+                (artboard) => artboard.width === project.canvasWidth && artboard.height === project.canvasHeight,
+            );
+            const activeBoard = artboards.find((artboard) => artboard.id === project.activeArtboardId)
+                || matchingBoard
+                || artboards[0];
+            const activeArtboardId = activeBoard?.id || 'art-1';
+            const activeElements = activeBoard
+                ? (activeBoard === matchingBoard || activeBoard.id === project.activeArtboardId
+                    ? cleanElements
+                    : activeBoard.elements)
+                : cleanElements;
+            const activeArtboards = activeBoard
+                ? artboards.map((artboard) => (
+                    artboard.id === activeArtboardId ? { ...artboard, elements: activeElements } : artboard
+                ))
+                : [{
+                    id: activeArtboardId,
+                    label: `${project.canvasWidth}x${project.canvasHeight}`,
+                    width: project.canvasWidth,
+                    height: project.canvasHeight,
+                    elements: activeElements,
+                }];
             return {
                 projectId: project.id,
                 projectName: project.name || 'Untitled Banner',
-                elements: cleanElements,
+                elements: activeElements,
                 selectedId: null,
                 selectedKeyframe: null,
                 playheadTime: 0,
                 isPlaying: false,
                 previewPaused: false,
-                canvasWidth: project.canvasWidth || 300,
-                canvasHeight: project.canvasHeight || 250,
+                canvasWidth: activeBoard?.width || project.canvasWidth || 300,
+                canvasHeight: activeBoard?.height || project.canvasHeight || 250,
                 totalDuration: project.totalDuration || 10,
                 loop: project.loop ?? true,
                 canvasBackground: project.canvasBackground || '#ffffff',
@@ -1055,8 +1080,8 @@ export const useDesignStore = create<DesignState>((set) => ({
                 useAsClickTag: project.useAsClickTag ?? false,
                 clickTagUrl: project.clickTagUrl || '',
                 clickTagTarget: project.clickTagTarget === '_self' ? '_self' : '_blank',
-                artboards,
-                activeArtboardId: artboards[0]?.id || 'art-1',
+                artboards: activeArtboards,
+                activeArtboardId,
                 multiArtboardView: false,
                 past: [],
                 future: [],

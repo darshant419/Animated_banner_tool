@@ -171,9 +171,9 @@ export const buildElementAnimationCss = ({
         const x = k.x !== undefined ? k.x - elX : 0;
         const y = k.y !== undefined ? k.y - elY : 0;
         let transformStr = 'translate(' + x + 'px, ' + y + 'px)';
-        if (k.rotation !== undefined && !skipRotation) transformStr += ' rotate(' + k.rotation + 'deg)';
-        if (k.scaleX !== undefined && !skipScaleX) transformStr += ' scaleX(' + k.scaleX + ')';
-        if (k.scaleY !== undefined && !skipScaleY) transformStr += ' scaleY(' + k.scaleY + ')';
+        if (!skipRotation) transformStr += ' rotate(' + (k.rotation ?? base.rotation) + 'deg)';
+        if (!skipScaleX) transformStr += ' scaleX(' + (k.scaleX ?? base.scaleX) + ')';
+        if (!skipScaleY) transformStr += ' scaleY(' + (k.scaleY ?? base.scaleY) + ')';
         parts.push('transform: ' + transformStr + ';');
 
         if (k.letterSpacing !== undefined) parts.push('letter-spacing: ' + k.letterSpacing + 'px;');
@@ -1104,4 +1104,3 @@ export const buildMainJs = (
     lines.push('};');
     return lines.join('\n');
 };
-

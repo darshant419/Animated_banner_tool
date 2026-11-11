@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import type { DesignElement } from '../store/designStore';
-import { getElementBaseState, getElementKeyframes } from './keyframes';
+import { getElementBaseState, getElementKeyframes, getElementTransformOffset } from './keyframes';
 import {
     applyIsiTextClickTags,
     buildAnimationStartEvent,
@@ -112,7 +112,9 @@ const blobToDataUrl = (blob: Blob): Promise<string> =>
 /** Downloads a remote file for inlined previews; returns undefined on failure. */
 const tryInlineRemote = async (url: string): Promise<string | undefined> => {
     try {
-        const blob = await (await fetch(url)).blob();
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Image request failed with status ' + response.status);
+        const blob = await response.blob();
         return await blobToDataUrl(blob);
     } catch {
         return undefined;
@@ -186,7 +188,7 @@ export async function buildBannerPackage({
 
     if (canvasBackgroundImage) {
         const bgImgName = 'bg.png';
-        htmlBodyParts.push('    <div style="position:absolute; inset:0; background-image:url(\'images/' + bgImgName + '\'); background-size:cover; z-index: 0;"></div>');
+        htmlBodyParts.push('    <div style="position:absolute; inset:0; background-image:url(\'images/' + bgImgName + '\'); background-size:100% 100%; z-index: 0;"></div>');
 
         if (canvasBackgroundImage.startsWith('data:')) {
             images.push({ name: bgImgName, dataUrl: canvasBackgroundImage, kind: 'background' });
@@ -202,6 +204,14 @@ export async function buildBannerPackage({
         const el = elements[index];
         const id = 'el-' + el.id;
         const base = getElementBaseState(el);
+        const { offsetX, offsetY } = getElementTransformOffset(el);
+        // Konva stores x/y at the transform pivot; CSS absolute positioning needs the box corner.
+        const x = Number(el.x) || 0;
+        const y = Number(el.y) || 0;
+        const leftOffset = x - offsetX;
+        const topOffset = y - offsetY;
+        const left = Math.abs(leftOffset) < 1e-8 ? 0 : leftOffset;
+        const top = Math.abs(topOffset) < 1e-8 ? 0 : topOffset;
         const z = index;
 
         // Hidden layers are skipped so the exported banner matches the canvas.
@@ -229,7 +239,7 @@ export async function buildBannerPackage({
             const logoWidth = el.isiLogoWidth || 187;
 
             cssLines.push(
-                '#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; background: ' + bgCol + '; color: ' + fontCol + '; font-size: ' + (el.fontSize || 12) + 'px; font-family: ' + (el.isiFontFamily || 'Arial, Helvetica, sans-serif') + '; font-weight: ' + (el.isiFontWeight || 'normal') + '; font-style: ' + (el.isiFontStyle || 'normal') + '; line-height: ' + (el.isiLineHeight || 1.4) + '; letter-spacing: ' + (el.isiLetterSpacing || 0) + 'px; border: ' + (el.isiBorderWidth || 0) + 'px solid ' + (el.isiBorderColor || 'transparent') + '; }',
+                '#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; background: ' + bgCol + '; color: ' + fontCol + '; font-size: ' + (el.fontSize || 12) + 'px; font-family: ' + (el.isiFontFamily || 'Arial, Helvetica, sans-serif') + '; font-weight: ' + (el.isiFontWeight || 'normal') + '; font-style: ' + (el.isiFontStyle || 'normal') + '; line-height: ' + (el.isiLineHeight || 1.4) + '; letter-spacing: ' + (el.isiLetterSpacing || 0) + 'px; border: ' + (el.isiBorderWidth || 0) + 'px solid ' + (el.isiBorderColor || 'transparent') + '; }',
                 '#' + id + ' .isi_wrapper { height: ' + bodyHeight + 'px; }',
                 '#' + id + ' .iScrollVerticalScrollbar { background-color: ' + scrollCol + '; border-top: 1px solid ' + scrollCol + '; border-bottom: 1px solid ' + scrollCol + '; right: ' + (el.isiScrollbarMarginRight ?? 3) + 'px !important; width: ' + (el.isiScrollbarWidth ?? 8) + 'px !important; height: ' + (el.isiScrollbarHeight ?? 66) + '% !important; margin-top: ' + (el.isiScrollbarMarginTop ?? 5) + 'px !important; padding: ' + (el.isiScrollbarPadding ?? 0) + 'px !important; }',
                 '#' + id + ' .iScrollIndicator { background: ' + indicatorCol + '; }',
@@ -241,6 +251,17 @@ export async function buildBannerPackage({
             // ISI sub-links resolved against the same clickTag variables, so the logo can
             // be labelled with a click tag like any hotspot.
             const isiLogoLink = linkPlan.byElementSlot[linkKey(el.id, 'isiLogo')];
+            const isiLogoName = el.isiLogoSrc ? 'isi-logo-' + el.id + '.png' : '';
+            if (el.isiLogoSrc) {
+                if (el.isiLogoSrc.startsWith('data:')) {
+                    images.push({ name: isiLogoName, dataUrl: el.isiLogoSrc, kind: 'image' });
+                } else if (inlineRemoteImages) {
+                    const dataUrl = await tryInlineRemote(el.isiLogoSrc);
+                    images.push({ name: isiLogoName, dataUrl, remoteUrl: el.isiLogoSrc, kind: 'image' });
+                } else {
+                    images.push({ name: isiLogoName, remoteUrl: el.isiLogoSrc, kind: 'image' });
+                }
+            }
             // Anchors of the ISI rich text, keyed by their position in the HTML.
             const isiTextLinks: Record<number, ElementLinkAssignment> = {};
             for (const anchor of collectIsiTextAnchors(el.isiText)) {
@@ -251,7 +272,8 @@ export async function buildBannerPackage({
                 '<img ' +
                 (className ? 'class="' + className + '" ' : '') +
                 'src="' +
-                el.isiLogoSrc +
+                'images/' +
+                isiLogoName +
                 '" style="width: ' +
                 logoWidth +
                 'px; height: auto;' +
@@ -338,29 +360,31 @@ export async function buildBannerPackage({
                 '</div>',
             );
             cssLines.push(
-                '#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 20) + 'px; z-index: ' + z + '; }',
+                '#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 20) + 'px; z-index: ' + z + '; }',
                 '#' + id + ' .pi-strip { box-sizing: border-box; width: 100%; height: 100%; display: flex; align-items: center; justify-content: ' + s.align + '; background: ' + s.background + '; border-radius: ' + s.borderRadius + 'px; padding: ' + s.paddingTop + 'px ' + s.paddingRight + 'px ' + s.paddingBottom + 'px ' + s.paddingLeft + 'px; overflow: hidden; }',
                 '#' + id + ' .pi-strip a { color: ' + (el.fill || '#000000') + '; font-size: ' + (el.fontSize || 10) + 'px; font-family: Arial, Helvetica, sans-serif; font-weight: bold; text-decoration: underline; text-underline-offset: 1px; }',
             );
         } else if ((el as any).type === 'rect') {
             htmlBodyParts.push('          <div id="' + id + '" class="element"></div>');
-            cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: ' + (el.cornerRadius || 0) + 'px; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
+            cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: ' + (el.cornerRadius || 0) + 'px; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
         } else if ((el as any).type === 'circle') {
             htmlBodyParts.push('          <div id="' + id + '" class="element"></div>');
-            cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 100) + 'px; height: ' + (el.width || 100) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: 50%; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
+            cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 100) + 'px; height: ' + (el.width || 100) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: 50%; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
         } else if (el.type === 'text') {
             htmlBodyParts.push('          <div id="' + id + '" class="element">' + (el.text || '') + '</div>');
-            cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 60) + 'px; z-index: ' + z + '; color: ' + (el.fill) + '; font-size: ' + (el.fontSize || 12) + 'px; font-family: ' + (el.fontFamily || 'Arial, sans-serif') + '; font-weight: ' + (el.fontWeight || 'normal') + '; font-style: ' + (el.fontStyle || 'normal') + '; text-decoration: ' + (el.textDecoration || 'none') + '; text-align: ' + (el.textAlign || 'left') + '; white-space: pre-wrap; line-height: ' + (el.lineHeight || 1.2) + '; letter-spacing: ' + (el.letterSpacing || 0) + 'px; overflow: hidden; transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
+            cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 60) + 'px; z-index: ' + z + '; color: ' + (el.fill) + '; font-size: ' + (el.fontSize || 12) + 'px; font-family: ' + (el.fontFamily || 'Arial, sans-serif') + '; font-weight: ' + (el.fontWeight || 'normal') + '; font-style: ' + (el.fontStyle || 'normal') + '; text-decoration: ' + (el.textDecoration || 'none') + '; text-align: ' + (el.textAlign || 'left') + '; white-space: pre-wrap; line-height: ' + (el.lineHeight || 1.2) + '; letter-spacing: ' + (el.letterSpacing || 0) + 'px; overflow: hidden; transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
         } else if (el.type === 'image' && el.src) {
             const imgName = 'image-' + el.id + '.png';
             images.push({ name: imgName, dataUrl: el.src.startsWith('data:') ? el.src : undefined, remoteUrl: el.src.startsWith('data:') ? undefined : el.src, kind: 'image' });
-            htmlBodyParts.push('          <img id="' + id + '" class="element" src="images/' + imgName + '" style="width: ' + (el.width || 200) + 'px; height: ' + (el.height || 150) + 'px;">');
-            cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 200) + 'px; height: ' + (el.height || 150) + 'px; z-index: ' + z + '; transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
+            const imgW = Number(el.width) || 300;
+            const imgH = Number(el.height) || 200;
+            htmlBodyParts.push('          <img id="' + id + '" class="element" src="images/' + imgName + '" style="width: ' + imgW + 'px; height: ' + imgH + 'px;">');
+            cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + imgW + 'px; height: ' + imgH + 'px; z-index: ' + z + '; transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
         } else if (el.type === 'video' && el.src) {
             const videoName = 'video-' + el.id + '.mp4';
             images.push({ name: videoName, dataUrl: el.src.startsWith('data:') ? el.src : undefined, remoteUrl: el.src.startsWith('data:') ? undefined : el.src, kind: 'video' });
             htmlBodyParts.push('          <video id="' + id + '" class="element" src="images/' + videoName + '" style="width: ' + (el.width || 320) + 'px; height: ' + (el.height || 180) + 'px;" muted playsinline></video>');
-            cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 320) + 'px; height: ' + (el.height || 180) + 'px; z-index: ' + z + '; }');
+            cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 320) + 'px; height: ' + (el.height || 180) + 'px; z-index: ' + z + '; }');
             // Auto-play video on load
             timelineEvents.push(buildVideoAutoplayEvent(id));
         } else if (el.type === 'shape' && el.path) {
@@ -369,13 +393,22 @@ export async function buildBannerPackage({
                 '            <svg width="100%" height="100%" viewBox="0 0 24 24" preserveAspectRatio="none"><path d="' + el.path + '" fill="' + (el.fill || '#000000') + '" /></svg>',
                 '          </div>',
             );
-            cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 50) + 'px; height: ' + (el.height || 50) + 'px; z-index: ' + z + '; }');
+            cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 50) + 'px; height: ' + (el.height || 50) + 'px; z-index: ' + z + '; }');
         } else if (el.type === 'html' && el.htmlContent) {
             htmlBodyParts.push('          <div id="' + id + '" class="element">' + el.htmlContent + '</div>');
-            cssLines.push('#' + id + ' { position: absolute; left: ' + el.x + 'px; top: ' + el.y + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; overflow: hidden; }');
+            cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 200) + 'px; z-index: ' + z + '; overflow: hidden; }');
         } else {
             continue;
         }
+
+        const baseTransform = [
+            'rotate(' + base.rotation + 'deg)',
+            'scaleX(' + base.scaleX + ')',
+            'scaleY(' + base.scaleY + ')',
+        ].join(' ');
+        cssLines.push(
+            '#' + id + ' { opacity: ' + base.opacity / 100 + '; transform: ' + baseTransform + '; transform-origin: ' + base.transformOrigin + '; }',
+        );
 
         // Click tag: a transparent anchor over the element's exact box turns it
         // into the clickable area of the exported banner.
@@ -384,8 +417,8 @@ export async function buildBannerPackage({
             htmlBodyParts.push(
                 buildClickHotspot({
                     id: 'link-' + el.id,
-                    x: el.x,
-                    y: el.y,
+                    x: left,
+                    y: top,
                     width: el.width || 0,
                     height: el.height || 0,
                     z,
@@ -484,6 +517,7 @@ export async function zipBannerPackage(pkg: BannerPackage): Promise<Blob> {
     const imgFolder = zip.folder('images');
     const cssFolder = zip.folder('css');
     const jsFolder = zip.folder('js');
+    let html = pkg.html;
 
     for (const image of pkg.images) {
         if (image.dataUrl) {
@@ -491,17 +525,23 @@ export async function zipBannerPackage(pkg: BannerPackage): Promise<Blob> {
             if (base64) imgFolder?.file(image.name, base64, { base64: true });
         } else if (image.remoteUrl) {
             try {
-                const blob = await (await fetch(image.remoteUrl)).blob();
+                const response = await fetch(image.remoteUrl);
+                if (!response.ok) throw new Error('Image request failed with status ' + response.status);
+                const blob = await response.blob();
                 imgFolder?.file(image.name, blob);
-            } catch {
-                /* keep the package usable even when an asset cannot be fetched */
+            } catch (error) {
+                console.warn(
+                    'Could not bundle banner asset "' + image.name + '"; the exported HTML will load it from its source URL.',
+                    error,
+                );
+                html = html.split('images/' + image.name).join(image.remoteUrl);
             }
         }
     }
 
     cssFolder?.file('styles.css', pkg.css);
     jsFolder?.file('main.js', pkg.js);
-    zip.file('index.html', pkg.html);
+    zip.file('index.html', html);
 
     return zip.generateAsync({ type: 'blob' });
 }

@@ -428,6 +428,53 @@ describe('designStore', () => {
             expect(state.artboards.map((a) => a.id)).toEqual(['art-a', 'art-b']);
             expect(state.activeArtboardId).toBe('art-a');
         });
+
+        it('restores the saved active artboard instead of always opening the first size', () => {
+            useDesignStore.getState().loadProjectState({
+                id: 'proj_multi',
+                name: 'Multi-size banner',
+                canvasWidth: 728,
+                canvasHeight: 90,
+                totalDuration: 10,
+                loop: true,
+                canvasBackground: '#ffffff',
+                activeArtboardId: 'art-b',
+                elements: [textEl({ id: 'active-element', text: '728x90' })],
+                artboards: [
+                    { id: 'art-a', label: '300x250', width: 300, height: 250, elements: [textEl({ id: 'small' })] },
+                    { id: 'art-b', label: '728x90', width: 728, height: 90, elements: [textEl({ id: 'stale' })] },
+                ],
+            });
+
+            const state = useDesignStore.getState();
+            expect(state.activeArtboardId).toBe('art-b');
+            expect(state.canvasWidth).toBe(728);
+            expect(state.canvasHeight).toBe(90);
+            expect(state.elements[0].id).toBe('active-element');
+            expect(state.artboards[1].elements[0].id).toBe('active-element');
+        });
+
+        it('uses the saved dimensions to select the active artboard in legacy projects', () => {
+            useDesignStore.getState().loadProjectState({
+                id: 'proj_legacy_multi',
+                name: 'Legacy multi-size banner',
+                canvasWidth: 728,
+                canvasHeight: 90,
+                totalDuration: 10,
+                loop: true,
+                canvasBackground: '#ffffff',
+                elements: [textEl({ id: 'active-element' })],
+                artboards: [
+                    { id: 'art-a', label: '300x250', width: 300, height: 250, elements: [] },
+                    { id: 'art-b', label: '728x90', width: 728, height: 90, elements: [] },
+                ],
+            });
+
+            const state = useDesignStore.getState();
+            expect(state.activeArtboardId).toBe('art-b');
+            expect(state.canvasWidth).toBe(728);
+            expect(state.artboards[1].elements[0].id).toBe('active-element');
+        });
     });
     describe('banner click tag', () => {
         it('updates the switch, URL and target together', () => {

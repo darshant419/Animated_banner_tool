@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildBannerPackage, buildPreviewHtml, type BannerPackage, type BuildBannerPackageOptions } from './bannerPackage';
+import { describe, it, expect, vi } from 'vitest';
+import JSZip from 'jszip';
+import { buildBannerPackage, buildPreviewHtml, zipBannerPackage, type BannerPackage, type BuildBannerPackageOptions } from './bannerPackage';
 import type { DesignElement } from '../store/designStore';
 
 const makePackage = (overrides: Partial<BannerPackage> = {}): BannerPackage => ({
@@ -40,6 +41,31 @@ describe('buildPreviewHtml', () => {
         );
 
         expect(preview).toContain('images/image-el-1.png');
+    });
+});
+
+describe('zipBannerPackage remote assets', () => {
+    it('keeps remote image references when an image cannot be bundled', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('CORS blocked'));
+        try {
+            const blob = await zipBannerPackage({
+                html: '<html><body><img src="images/remote.png"></body></html>',
+                css: '',
+                js: '',
+                images: [{
+                    name: 'remote.png',
+                    remoteUrl: 'https://cdn.example.com/remote.png',
+                    kind: 'image',
+                }],
+            });
+            const archive = await JSZip.loadAsync(await blob.arrayBuffer());
+            const html = await archive.file('index.html')?.async('string');
+
+            expect(html).toContain('src="https://cdn.example.com/remote.png"');
+            expect(archive.file('images/remote.png')).toBeNull();
+        } finally {
+            fetchSpy.mockRestore();
+        }
     });
 });
 
@@ -88,7 +114,7 @@ describe('buildBannerPackage click tags', () => {
 
         expect(pkg.html).toContain('<a id="link-el-hero" class="clicktag-area"');
         expect(pkg.html).toContain('window.open(window.clickTag3, \'_self\')');
-        expect(pkg.html).toContain('left: 20px; top: 30px; width: 160px; height: 50px; z-index: 0;');
+        expect(pkg.html).toContain('left: -60px; top: 5px; width: 160px; height: 50px; z-index: 0;');
         expect(pkg.css).toContain('.clicktag-area { position: absolute;');
     });
 
@@ -124,6 +150,11 @@ describe('buildBannerPackage click tags', () => {
         expect(pkg.html).toContain('var clickTag1 = "https://logo.com/";');
         expect(pkg.html).toContain('var clickTag2 = "https://www.fda.gov/medwatch";');
         expect(pkg.html).toContain("window.open(window.clickTag2, '_blank')");
+        expect(pkg.html).toContain('src="images/isi-logo-isi-1.png"');
+        expect(pkg.images).toContainEqual(expect.objectContaining({
+            name: 'isi-logo-isi-1.png',
+            remoteUrl: '/emr_assets/logo.png',
+        }));
     });
 
     it('exports the standalone PI strip as its own layer with its own z-index', async () => {
@@ -144,11 +175,42 @@ describe('buildBannerPackage click tags', () => {
 
         // Its own div, positioned and stacked like any other element.
         expect(pkg.html).toContain('<div id="el-pi-1" class="pi-strip">');
-        expect(pkg.css).toContain('#el-pi-1 { position: absolute; left: 0px; top: 140px; width: 300px; height: 20px; z-index: 0; }');
+        expect(pkg.css).toContain('#el-pi-1 { position: absolute; left: -150px; top: 130px; width: 300px; height: 20px; z-index: 0; }');
         expect(pkg.css).toContain('#el-isi-1 { position: absolute; left: 0px; top: 160px;');
         // Its own padding, independent of the ISI tray padding.
         expect(pkg.css).toContain('padding: 4px 4px 4px 12px;');
         expect(pkg.html).toContain('window.open(window.clickTag1');
+    });
+
+    it('bundles data-URL ISI logos for self-contained previews and downloads', async () => {
+        const logo = 'data:image/png;base64,TE9HTw==';
+        const pkg = await buildPackage([
+            bannerElement({
+                id: 'isi-logo-test',
+                type: 'isiScroll',
+                x: 0,
+                y: 162,
+                width: 300,
+                height: 88,
+                isiText: '<p>Safety</p>',
+                isiLogoSrc: logo,
+            }),
+        ]);
+        const preview = buildPreviewHtml(pkg);
+        const archive = await JSZip.loadAsync(await (await zipBannerPackage(pkg)).arrayBuffer());
+
+        expect(pkg.images).toContainEqual(expect.objectContaining({
+            name: 'isi-logo-isi-logo-test.png',
+            dataUrl: logo,
+        }));
+        expect(preview).toContain('src="' + logo + '"');
+        expect(await archive.file('images/isi-logo-isi-logo-test.png')?.async('string')).toBe('LOGO');
+    });
+
+    it('stretches exported canvas backgrounds to match the editor artboard', async () => {
+        const pkg = await buildPackage([], { canvasBackgroundImage: 'data:image/png;base64,AAA' });
+
+        expect(pkg.html).toContain('background-size:100% 100%');
     });
 });
 
@@ -247,6 +309,43 @@ describe('buildBannerPackage ISI scrolling', () => {
 });
 
 describe('buildBannerPackage end behaviour (stay / disappear)', () => {
+    it('positions exported image layers from their transform origin like the editor canvas', async () => {
+        const pkg = await buildPackage([
+            bannerElement({
+                id: 'hero-image',
+                type: 'image',
+                x: 150,
+                y: 125,
+                width: 300,
+                height: 296,
+                src: 'data:image/png;base64,AAA',
+            }),
+        ]);
+
+        expect(pkg.css).toContain(
+            '#el-hero-image { position: absolute; left: 0px; top: -23px; width: 300px; height: 296px;',
+        );
+    });
+
+    it('exports the element base opacity, transform, and transform origin', async () => {
+        const pkg = await buildPackage([
+            bannerElement({
+                id: 'image-1',
+                type: 'image',
+                src: 'data:image/png;base64,AAA',
+                opacity: 60,
+                rotation: 30,
+                scaleX: 0.8,
+                scaleY: 1.2,
+                transformOrigin: '0% 0%',
+            }),
+        ]);
+
+        expect(pkg.css).toContain(
+            '#el-image-1 { opacity: 0.6; transform: rotate(30deg) scaleX(0.8) scaleY(1.2); transform-origin: 0% 0%; }',
+        );
+    });
+
     it('animates an ISI tray instead of exporting it static', async () => {
         const pkg = await buildPackage([
             bannerElement({
@@ -337,4 +436,3 @@ describe('buildBannerPackage banner click tag', () => {
         expect(pkg.js).not.toContain('javascript:alert(1)');
     });
 });
-

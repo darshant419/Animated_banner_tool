@@ -40,8 +40,13 @@ export const parseTransformOrigin = (
 };
 
 /** Convenience: resolve offsetX/offsetY directly from a DesignElement. */
-export const getElementTransformOffset = (el: DesignElement): { offsetX: number; offsetY: number } =>
-    parseTransformOrigin(el.transformOrigin, el.width || 300, el.height || 200);
+export const getElementTransformOffset = (el: DesignElement): { offsetX: number; offsetY: number } => {
+    // The rich HTML ISI overlay uses x/y as its top-left, not as a Konva pivot.
+    if (el.type === 'isiScroll') return { offsetX: 0, offsetY: 0 };
+    const w = Number(el.width) || 300;
+    const h = Number(el.height) || 200;
+    return parseTransformOrigin(el.transformOrigin, w, h);
+};
 
 export const EASINGS: Array<{ id: string; label: string; desc?: string }> = [
     { id: 'power1.inOut', label: 'Ease (default)', desc: 'Balanced acceleration & deceleration' },

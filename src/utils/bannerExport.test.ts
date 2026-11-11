@@ -156,6 +156,24 @@ describe('buildElementAnimationCss', () => {
         );
     });
 
+    it('preserves base rotation and scale when keyframes omit those channels', () => {
+        const result = buildElementAnimationCss({
+            id: 'el-3b',
+            frames: [frame({ time: 0, x: 100 }), frame({ time: 1, x: 120, opacity: 100 })],
+            base: base({ rotation: 30, scaleX: 0.8, scaleY: 1.2 }),
+            elX: 100,
+            elY: 80,
+            totalDuration: 1,
+        });
+
+        expect(result!.css[1]).toContain(
+            'transform: translate(0px, 0px) rotate(30deg) scaleX(0.8) scaleY(1.2);',
+        );
+        expect(result!.css[2]).toContain(
+            'transform: translate(20px, 0px) rotate(30deg) scaleX(0.8) scaleY(1.2);',
+        );
+    });
+
     it('keeps the per-keyframe easing by overriding animation-timing-function', () => {
         const result = buildElementAnimationCss({
             id: 'el-4',

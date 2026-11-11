@@ -7,6 +7,7 @@ import {
     getElementAnimationSegments,
     elementEndTime,
     suggestedDuration,
+    getElementTransformOffset,
 } from './keyframes';
 import type { DesignElement } from '../store/designStore';
 
@@ -39,6 +40,21 @@ describe('getElementBaseState', () => {
 
     it('defaults opacity to 100 when unset', () => {
         expect(getElementBaseState(makeElement()).opacity).toBe(100);
+    });
+});
+
+describe('getElementTransformOffset', () => {
+    it('keeps ISI tray coordinates at their direct overlay position', () => {
+        expect(getElementTransformOffset(makeElement({
+            type: 'isiScroll',
+            width: 300,
+            height: 88,
+        }))).toEqual({ offsetX: 0, offsetY: 0 });
+    });
+
+    it('uses the transform origin for regular canvas elements', () => {
+        expect(getElementTransformOffset(makeElement({ width: 200, height: 60 })))
+            .toEqual({ offsetX: 100, offsetY: 30 });
     });
 });
 

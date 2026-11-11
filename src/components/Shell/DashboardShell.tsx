@@ -1,6 +1,5 @@
 import React from 'react';
-import { Layout, Home, Images, LayoutTemplate, FolderOpen, Plus, Cloud, HardDrive } from 'lucide-react';
-import { isFirebaseConfigured } from '../../services/firebase';
+import { Layout, Home, Images, LayoutTemplate, FolderOpen, Plus } from 'lucide-react';
 import { navigate } from '../../router/hashRouter';
 import { FirebaseStatusBanner } from './FirebaseStatusBanner';
 
@@ -28,8 +27,6 @@ const isActive = (activePath: string, itemPath: string): boolean => {
  * layout: brand, primary navigation and a "create" call to action.
  */
 export const DashboardShell: React.FC<DashboardShellProps> = ({ activePath, children }) => {
-    const isCloud = isFirebaseConfigured();
-
     return (
         <div className="min-h-screen bg-[#1e1e26] text-gray-100 flex flex-col">
             <FirebaseStatusBanner />
@@ -70,18 +67,6 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ activePath, chil
                 </nav>
 
                 <div className="flex-1" />
-
-                <span
-                    className={`hidden sm:flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${
-                        isCloud
-                            ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                    }`}
-                    title={isCloud ? 'Connected to Firebase Firestore & Storage' : 'Running in local mode — add Firebase keys in .env'}
-                >
-                    {isCloud ? <Cloud size={10} /> : <HardDrive size={10} />}
-                    {isCloud ? 'Firebase' : 'Local'}
-                </span>
 
                 <button
                     onClick={() => navigate('/new')}
