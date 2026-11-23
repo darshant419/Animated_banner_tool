@@ -82,11 +82,11 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
         };
     }, [id]);
 
-    // Assets uploaded from this banner's editor session.
+    // Assets uploaded for this banner — stored project-wise in Firestore/Storage.
     useEffect(() => {
-        const unsubscribe = subscribeToAssets((all) => {
-            setAssets(all.filter((asset) => asset.projectId === id));
-        });
+        const unsubscribe = subscribeToAssets((loadedAssets) => {
+            setAssets(loadedAssets);
+        }, id);
         return () => unsubscribe();
     }, [id]);
 

@@ -6,8 +6,13 @@ service cloud.firestore {
       allow read, write: if true; // In production, replace with: if request.auth != null
     }
 
-    // Assets Metadata Collection
+    // Assets Metadata Collection (general library, no project)
     match /assets/{assetId} {
+      allow read, write: if true; // In production, replace with: if request.auth != null
+    }
+
+    // Project-wise Assets Metadata (each banner's assets in its own subcollection)
+    match /projects/{projectId}/assets/{assetId} {
       allow read, write: if true; // In production, replace with: if request.auth != null
     }
 

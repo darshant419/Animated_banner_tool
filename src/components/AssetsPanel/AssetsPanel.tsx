@@ -26,9 +26,9 @@ export const AssetsPanel: React.FC = () => {
     useEffect(() => {
         const unsubscribe = subscribeToAssets((loadedAssets) => {
             setAssets(loadedAssets);
-        });
+        }, projectId || undefined);
         return () => unsubscribe();
-    }, []);
+    }, [projectId]);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;

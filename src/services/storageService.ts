@@ -13,10 +13,15 @@ export interface UploadResult {
 
 /**
  * Upload an asset file (image, video, GIF) to Firebase Storage.
+ *
+ * When `projectId` is provided the file is stored under
+ * `projects/{projectId}/assets/` so each banner's assets live in their own
+ * folder. Otherwise the file goes to the general `assets/` library folder.
  */
 export async function uploadMediaAsset(
     file: File,
-    onProgress?: (progressPercent: number) => void
+    onProgress?: (progressPercent: number) => void,
+    projectId?: string
 ): Promise<UploadResult> {
     if (!isFirebaseConfigured() || !storage) {
         console.warn('Firebase Storage is not configured. Falling back to base64 DataURL.');
@@ -35,7 +40,8 @@ export async function uploadMediaAsset(
     }
 
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `assets/${Date.now()}_${cleanFileName}`;
+    const folder = projectId ? `projects/${projectId}/assets` : 'assets';
+    const storagePath = `${folder}/${Date.now()}_${cleanFileName}`;
     const storageRef = ref(storage, storagePath);
 
     const uploadTask = uploadBytesResumable(storageRef, file, {

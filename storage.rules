@@ -1,8 +1,16 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Media assets (images, videos, gifs)
+    // Media assets (images, videos, gifs) — general library
     match /assets/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.resource.size < 50 * 1024 * 1024 // 50MB limit
+                   && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('video/.*'));
+      allow delete: if true;
+    }
+
+    // Project-wise media assets — each banner's assets in its own folder
+    match /projects/{projectId}/assets/{allPaths=**} {
       allow read: if true;
       allow write: if request.resource.size < 50 * 1024 * 1024 // 50MB limit
                    && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('video/.*'));

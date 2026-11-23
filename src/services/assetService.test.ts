@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const uploadMediaAssetMock = vi.hoisted(() => vi.fn());
 const setDocMock = vi.hoisted(() => vi.fn());
 const serverTimestampMock = vi.hoisted(() => vi.fn(() => 'server-timestamp'));
+const docMock = vi.hoisted(() => vi.fn(() => 'asset-ref'));
 
 vi.mock('../services/firebase', () => ({
     isFirebaseConfigured: () => true,
@@ -16,7 +17,7 @@ vi.mock('../services/storageService', () => ({
 
 vi.mock('firebase/firestore', () => ({
     collection: vi.fn(),
-    doc: vi.fn(() => 'asset-ref'),
+    doc: docMock,
     setDoc: setDocMock,
     deleteDoc: vi.fn(),
     onSnapshot: vi.fn(),
@@ -45,6 +46,11 @@ describe('assetService upload metadata', () => {
 
         await uploadAndSaveAsset(makeFile());
 
+        expect(uploadMediaAssetMock).toHaveBeenCalledWith(
+            expect.objectContaining({ name: 'hero.png', type: 'image/png', size: 1234 }),
+            undefined,
+            undefined
+        );
         const payload = setDocMock.mock.calls[0][1];
         expect(payload).toMatchObject({
             name: 'hero.png',
@@ -53,6 +59,7 @@ describe('assetService upload metadata', () => {
         });
         expect(payload).not.toHaveProperty('projectId');
         expect(serverTimestampMock).toHaveBeenCalledOnce();
+        expect(docMock).toHaveBeenCalledWith(expect.anything(), 'assets', expect.stringContaining('asset_'));
     });
 
     it('keeps projectId for an asset uploaded from a banner editor', async () => {
@@ -60,6 +67,32 @@ describe('assetService upload metadata', () => {
 
         await uploadAndSaveAsset(makeFile(), undefined, 'proj_123');
 
+        expect(uploadMediaAssetMock).toHaveBeenCalledWith(
+            expect.objectContaining({ name: 'hero.png', type: 'image/png', size: 1234 }),
+            undefined,
+            'proj_123'
+        );
         expect(setDocMock.mock.calls[0][1]).toHaveProperty('projectId', 'proj_123');
+        expect(docMock).toHaveBeenCalledWith(
+            expect.anything(),
+            'projects/proj_123/assets',
+            expect.stringContaining('asset_')
+        );
+    });
+
+    it('stores project upload under projects/{projectId}/assets in Storage', async () => {
+        const { uploadAndSaveAsset } = await import('./assetService');
+
+        uploadMediaAssetMock.mockResolvedValue({
+            downloadUrl: 'https://cdn.example.com/hero.png',
+            storagePath: 'projects/proj_123/assets/1234567890_hero.png',
+        });
+
+        await uploadAndSaveAsset(makeFile(), undefined, 'proj_123');
+
+        const [file, , projId] = uploadMediaAssetMock.mock.calls[0];
+        expect(projId).toBe('proj_123');
+        const payload = setDocMock.mock.calls[0][1];
+        expect(payload.storagePath).toBe('projects/proj_123/assets/1234567890_hero.png');
     });
 });

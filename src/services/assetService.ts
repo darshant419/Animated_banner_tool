@@ -28,9 +28,14 @@ const LOCAL_STORAGE_KEY = 'banner_tool_uploaded_assets';
 
 /**
  * Real-time listener for uploaded assets.
+ *
+ * When `projectId` is provided, listens to the project's asset subcollection
+ * `projects/{projectId}/assets` so only that banner's assets are returned.
+ * Otherwise listens to the general `assets` library collection.
  */
 export function subscribeToAssets(
-    callback: (assets: FirebaseAsset[]) => void
+    callback: (assets: FirebaseAsset[]) => void,
+    projectId?: string
 ): () => void {
     if (!isFirebaseConfigured() || !db) {
         // Fallback to localStorage
@@ -67,7 +72,9 @@ export function subscribeToAssets(
         };
     }
 
-    const assetsCol = collection(db, 'assets');
+    const assetsCol = projectId
+        ? collection(db, `projects/${projectId}/assets`)
+        : collection(db, 'assets');
     const q = query(assetsCol, orderBy('createdAt', 'desc'));
 
     return onSnapshot(
@@ -97,13 +104,18 @@ export function subscribeToAssets(
 
 /**
  * Upload an asset file and persist its metadata in Firestore.
+ *
+ * When `projectId` is provided the file is stored under
+ * `projects/{projectId}/assets/` in Storage and its metadata is written to the
+ * `projects/{projectId}/assets` Firestore subcollection. Otherwise both go to
+ * the general `assets` library.
  */
 export async function uploadAndSaveAsset(
     file: File,
     onProgress?: (pct: number) => void,
     projectId?: string
 ): Promise<FirebaseAsset> {
-    const { downloadUrl, storagePath } = await uploadMediaAsset(file, onProgress);
+    const { downloadUrl, storagePath } = await uploadMediaAsset(file, onProgress, projectId);
     const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
     const newAsset: FirebaseAsset = {
@@ -131,7 +143,9 @@ export async function uploadAndSaveAsset(
         return newAsset;
     }
 
-    const assetRef = doc(db, 'assets', assetId);
+    const assetRef = projectId
+        ? doc(db, `projects/${projectId}/assets`, assetId)
+        : doc(db, 'assets', assetId);
     await setDoc(assetRef, {
         ...newAsset,
         createdAt: serverTimestamp(),
@@ -162,6 +176,8 @@ export async function deleteAsset(asset: FirebaseAsset): Promise<void> {
         return;
     }
 
-    const assetRef = doc(db, 'assets', asset.id);
+    const assetRef = asset.projectId
+        ? doc(db, `projects/${asset.projectId}/assets`, asset.id)
+        : doc(db, 'assets', asset.id);
     await deleteDoc(assetRef);
 }
