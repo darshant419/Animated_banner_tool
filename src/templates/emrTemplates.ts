@@ -67,7 +67,7 @@ export const BANNER_TEMPLATES: BannerTemplate[] = [
         totalDuration: 6,
         elements: [
             { id: 'bg-template', type: 'image', x: 0, y: 0, width: 300, height: 162, src: '/emr_assets/bgg.png' },
-            { id: 'isi-template', type: 'isiScroll', x: 0, y: 162, width: 300, height: 88, isiText: EMR_ISI_TEXT, isiScrollSpeed: 30, isiAutoStart: true, fontSize: 12, fill: '#006937' },
+            { id: 'isi-template', type: 'isiScroll', x: 0, y: 162, width: 300, height: 88, isiText: EMR_ISI_TEXT, isiScrollSpeed: 30, isiAutoStart: true, isiStartDelay: 2, fontSize: 12, fill: '#006937' },
             { id: 'isi-logo-template', type: 'image', x: 10, y: 130, width: 80, height: 20, src: '/emr_assets/isi-logo.png' },
         ],
     },

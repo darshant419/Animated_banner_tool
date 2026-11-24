@@ -9,11 +9,13 @@ import Konva from 'konva';
 import useImage from 'use-image';
 import { ISIScroll } from './ISIScroll';
 import { ISIOverlay } from './ISIOverlay';
+import { InlineTextEditor } from './InlineTextEditor';
 import { buildMasterTimeline, registerMasterSeeker, unregisterMasterSeeker } from './AnimationHelpers';
 import { getElementBaseState, getElementTransformOffset } from '../../utils/keyframes';
 import { getPiStripStyle } from '../../utils/bannerExport';
 import { buildBannerPackage, zipBannerPackage } from '../../utils/bannerPackage';
 import { buildClickTagPlanForElements, linkKey } from '../../utils/bannerExport';
+import { sanitizeRichText } from '../../utils/richText';
 
 const URLImage = React.forwardRef<Konva.Image, any>(function URLImage({ image, ...props }, ref) {
   const [img] = useImage(image.src);
@@ -27,31 +29,11 @@ const BackgroundImage = ({ src, width, height }: { src: string, width: number, h
 
 const GUIDELINE_OFFSET = 5;
 
-const parseHex = (c: string): [number, number, number] => {
-  const m = /^#?([0-9a-f]{6})$/i.exec((c || '').trim());
-  if (!m) return [0, 0, 0];
-  const v = parseInt(m[1], 16);
-  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
-};
-
-const luminance = (c: string): number => {
-  const [r, g, b] = parseHex(c);
-  return 0.299 * r + 0.587 * g + 0.114 * b;
-};
-
-// Picks a readable text color for the inline editor: keeps the element's fill
-// when it contrasts with the canvas, otherwise flips to the opposite of the bg.
-const editorTextColor = (fill: string | undefined, bg: string | undefined): string => {
-  const fillColor = fill || '#000000';
-  const bgColor = bg || '#ffffff';
-  if (Math.abs(luminance(fillColor) - luminance(bgColor)) > 100) return fillColor;
-  return luminance(bgColor) > 128 ? '#111111' : '#f5f5f5';
-};
-
 interface ShapeProps {
   el: DesignElement;
   /** All board elements — lets a docked PI strip find its tray. */
   elements?: DesignElement[];
+  editingTextId?: string;
   isPlaying: boolean;
   registerNode: (id: string, node: Konva.Node | null) => void;
   onSelect: (id: string) => void;
@@ -65,6 +47,7 @@ interface ShapeProps {
 const ElementShape = memo(function ElementShape({
   el,
   elements,
+  editingTextId,
   isPlaying,
   registerNode,
   onSelect,
@@ -130,9 +113,11 @@ const ElementShape = memo(function ElementShape({
           ref={ref as any}
           {...commonProps}
           text={el.text}
+          fill={(el.richText || editingTextId === el.id) && !isPlaying ? 'rgba(0, 0, 0, 0)' : el.fill}
           fontSize={el.fontSize}
           fontFamily={el.fontFamily}
           fontStyle={konvaFontStyle}
+          textDecoration={el.textDecoration || 'none'}
           align={el.textAlign || 'left'}
           letterSpacing={el.letterSpacing || 0}
           lineHeight={el.lineHeight || 1.2}
@@ -205,7 +190,7 @@ const ElementShape = memo(function ElementShape({
             fontSize={el.fontSize || 10}
             fontFamily={el.fontFamily || 'Arial, Helvetica, sans-serif'}
             fontStyle={konvaFontStyle}
-            fill={el.fill || '#000000'}
+            fill={editingTextId === el.id && !isPlaying ? 'rgba(0, 0, 0, 0)' : el.fill || '#000000'}
             align={s.align}
             verticalAlign="middle"
             textDecoration={el.linkUrl ? 'underline' : 'normal'}
@@ -258,7 +243,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   const nodeRefs = useRef<Map<string, Konva.Node>>(new Map());
   const masterRef = useRef<gsap.core.Timeline | null>(null);
   const [guides, setGuides] = useState<{ x?: number, y?: number }[]>([]);
-  const [editingText, setEditingText] = useState<{ id: string; value: string } | null>(null);
+  const [editingText, setEditingText] = useState<{ id: string } | null>(null);
   const [editingISI, setEditingISI] = useState<{ id: string; header: string; html: string } | null>(null);
 
   const elements = board.elements;
@@ -277,6 +262,14 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   const registerNode = useCallback((id: string, node: Konva.Node | null) => {
     if (node) nodeRefs.current.set(id, node);
     else nodeRefs.current.delete(id);
+  }, []);
+
+  // Clean up node refs on unmount so stale Konva node references don't
+  // leak into the next artboard when switching sizes.
+  useEffect(() => {
+    return () => {
+      nodeRefs.current.clear();
+    };
   }, []);
 
   // Clicking anywhere on a non-focused board makes it the active editing target.
@@ -369,6 +362,9 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       false,
     );
     masterRef.current.seek(playheadTime, false);
+    // Force Konva to redraw the stage so elements render at their correct
+    // positions immediately after switching artboards / sizes.
+    stageRef.current?.batchDraw();
     // Let the Timeline drive this board's canvas at 60fps without a global store
     // update on every frame (keeps playback smooth and panels from re-rendering).
     registerMasterSeeker(board.id, (t) => {
@@ -467,15 +463,8 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     if (!isActive || isPlaying) return;
     const el = elements.find((e) => e.id === id);
     if (!el || el.locked) return;
-    setEditingText({ id, value: el.text || '' });
+    setEditingText({ id });
   }, [isActive, isPlaying, elements]);
-
-  const commitText = () => {
-    if (editingText) {
-      updateElement(editingText.id, { text: editingText.value });
-    }
-    setEditingText(null);
-  };
 
   // On-canvas ISI editor (double-click the ISI tray).
   const startEditISI = useCallback((id: string) => {
@@ -530,6 +519,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
               key={el.id}
               el={el}
               elements={elements}
+              editingTextId={editingText?.id}
               isPlaying={isPlaying}
               registerNode={registerNode}
               onSelect={(id) => { activate(); selectElement(id); }}
@@ -554,6 +544,38 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
           {isActive && selectedId && <Transformer ref={trRef} keepRatio={true} />}
         </Layer>
       </Stage>
+
+      {!isPlaying && elements.map((el, index) => (
+        el.type === 'text' && el.richText && el.visible !== false ? (
+          <div
+            key={`rich-text-${el.id}`}
+            aria-hidden="true"
+            className="pointer-events-none absolute overflow-hidden"
+            style={{
+              left: el.x,
+              top: el.y,
+              width: el.width || 300,
+              height: el.height || 60,
+              zIndex: index + 1,
+              opacity: (el.opacity ?? 100) / 100,
+              color: el.fill || '#000000',
+              fontSize: el.fontSize || 12,
+              fontFamily: el.fontFamily || 'Arial, sans-serif',
+              fontWeight: el.fontWeight || 'normal',
+              fontStyle: el.fontStyle || 'normal',
+              textDecoration: el.textDecoration || 'none',
+              textAlign: el.textAlign || 'left',
+              lineHeight: el.lineHeight || 1.2,
+              letterSpacing: `${el.letterSpacing || 0}px`,
+              whiteSpace: 'pre-wrap',
+              overflowWrap: 'break-word',
+              transform: `rotate(${el.rotation || 0}deg) scale(${el.scaleX || 1}, ${el.scaleY || 1})`,
+              transformOrigin: el.transformOrigin || '50% 50%',
+            }}
+            dangerouslySetInnerHTML={{ __html: sanitizeRichText(el.richText) }}
+          />
+        ) : null
+      ))}
 
       {/* Click-tag areas: an HTML overlay (outside the Konva stage, so it can
           never leak into the PNG export) marking where the banner is clickable.
@@ -587,49 +609,16 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
         ))
       )}
 
-      {/* Inline text editor overlay (matches the element's text style) */}
+      {/* Inline rich-text editor overlay */}
       {editingElement && (
-        <textarea
-          value={editingText!.value}
-          autoFocus
-          onChange={(e) => setEditingText({ id: editingElement.id, value: e.target.value })}
-          onBlur={commitText}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              setEditingText(null);
-            } else if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              commitText();
-            }
+        <InlineTextEditor
+          element={editingElement}
+          onCommit={(richText, text) => {
+            updateElement(editingElement.id, { richText, text });
+            setEditingText(null);
           }}
-          style={{
-            position: 'absolute',
-            left: editingElement.x,
-            top: editingElement.y,
-            width: editingElement.width || 300,
-            height: editingElement.height || 60,
-            fontSize: editingElement.fontSize || 24,
-            fontFamily: editingElement.fontFamily || 'Arial, sans-serif',
-            fontWeight: editingElement.fontWeight || 'normal',
-            fontStyle: editingElement.fontStyle || 'normal',
-            textDecoration: editingElement.textDecoration || 'none',
-            textAlign: editingElement.textAlign || 'left',
-            lineHeight: editingElement.lineHeight || 1.2,
-            letterSpacing: `${editingElement.letterSpacing || 0}px`,
-            color: editorTextColor(editingElement.fill, canvasBackground),
-            background: canvasBackground || '#ffffff',
-            border: '1px dashed #ef4444',
-            outline: 'none',
-            resize: 'none',
-            overflow: 'hidden',
-            padding: 0,
-            margin: 0,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            zIndex: 200,
-            cursor: 'text',
-          }}
+          onCancel={() => setEditingText(null)}
+          canvasBackground={canvasBackground}
         />
       )}
 
@@ -835,6 +824,7 @@ export const DesignCanvas: React.FC = () => {
         activeBoard && (
           <div className="m-auto">
             <BoardStage
+              key={activeBoard.id}
               board={activeBoard}
               isActive={true}
               registerStage={registerStage}

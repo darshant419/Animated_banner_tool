@@ -68,13 +68,6 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({ activePath, chil
 
                 <div className="flex-1" />
 
-                <button
-                    onClick={() => navigate('/new')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-red-600 text-white hover:bg-red-700 transition"
-                >
-                    <Plus size={13} />
-                    New banner
-                </button>
             </header>
 
             <main className="flex-1 min-h-0">{children}</main>

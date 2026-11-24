@@ -896,7 +896,7 @@ return (
                         <div className="space-y-3">
                             <textarea
                                 value={selectedElement.text || ''}
-                                onChange={(e) => handleChange('text', e.target.value)}
+                                onChange={(e) => updateElement(selectedElement.id, { text: e.target.value, richText: undefined })}
                                 className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100 min-h-[60px]"
                             />
 

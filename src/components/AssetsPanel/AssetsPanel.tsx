@@ -8,12 +8,13 @@ import {
     type FirebaseAsset,
 } from '../../services/assetService';
 import { isFirebaseConfigured } from '../../services/firebase';
+import { getSafeElementPosition } from '../../utils/canvasPosition';
 
 let assetIdCounter = 0;
 const nextElementId = () => `el-asset-${++assetIdCounter}`;
 
 export const AssetsPanel: React.FC = () => {
-    const { addElement, projectId } = useDesignStore();
+    const { addElement, projectId, canvasWidth, canvasHeight } = useDesignStore();
     const [search, setSearch] = useState('');
     const [assets, setAssets] = useState<FirebaseAsset[]>([]);
     const [uploadingCount, setUploadingCount] = useState(0);
@@ -79,11 +80,16 @@ export const AssetsPanel: React.FC = () => {
 
     const addUploadedAsset = (asset: FirebaseAsset) => {
         const isVideo = asset.type.startsWith('video/');
+        const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+            type: isVideo ? 'video' : 'image',
+            width: isVideo ? 320 : 200,
+            height: isVideo ? 180 : 150,
+        });
         addElement({
             id: nextElementId(),
             type: isVideo ? 'video' : 'image',
-            x: 100,
-            y: 100,
+            x,
+            y,
             width: isVideo ? 320 : 200,
             height: isVideo ? 180 : 150,
             src: asset.downloadUrl,

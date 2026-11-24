@@ -93,6 +93,14 @@ const bannerElement = (overrides: Partial<DesignElement> = {}): DesignElement =>
     ...overrides,
 });
 
+describe('buildBannerPackage text content', () => {
+    it('escapes plain text so banner copy cannot be interpreted as markup', async () => {
+        const pkg = await buildPackage([bannerElement({ text: 'Use < 5 & "safe" text' })]);
+
+        expect(pkg.html).toContain('Use &lt; 5 &amp; &quot;safe&quot; text');
+    });
+});
+
 describe('buildBannerPackage click tags', () => {
     it('declares the click tags in the HTML head and in main.js', async () => {
         const pkg = await buildPackage([bannerElement({ linkUrl: 'https://orserdu.com/efficacy/' })]);

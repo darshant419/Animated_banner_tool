@@ -91,6 +91,8 @@ export interface DesignElement {
     locked?: boolean;
     fill?: string;
     text?: string;
+    /** Inline rich-text markup for text elements; `text` remains the plain-text canvas fallback. */
+    richText?: string;
     htmlContent?: string;
     path?: string;
     points?: number[];

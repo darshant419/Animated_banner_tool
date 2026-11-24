@@ -3,8 +3,9 @@ import {
   MousePointer2, Type, Image as ImageIcon, Loader2,
   ScrollText, Layers, Shapes, Layout, FileJson, SeparatorHorizontal,
 } from 'lucide-react';
-import { useDesignStore, type ElementType } from '../../store/designStore';
+import { useDesignStore, type ElementType, type DesignElement } from '../../store/designStore';
 import { EMR_ISI_TEXT } from '../../templates/emrTemplates';
+import { getSafeElementPosition } from '../../utils/canvasPosition';
 
 import { uploadAndSaveAsset } from '../../services/assetService';
 
@@ -18,7 +19,7 @@ interface ToolbarProps {
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) => {
-    const { addElement, projectId } = useDesignStore();
+    const { addElement, projectId, canvasWidth, canvasHeight } = useDesignStore();
     const fileInputRef = React.useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = React.useState(false);
 
@@ -40,25 +41,38 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
 
         const preset = defaults[tool];
         if (preset) {
+            const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+                type: preset.type as DesignElement['type'],
+                width: preset.width,
+                height: preset.height,
+            });
             addElement({
                 id: Date.now().toString(),
                 ...preset,
+                x,
+                y,
             });
             onToolChange('select');
             return;
         }
 
         if (tool === 'isiScroll') {
+            const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+                type: 'isiScroll',
+                width: 300,
+                height: 88,
+            });
             addElement({
                 id: Date.now().toString(),
                 type: 'isiScroll',
-                x: 0,
-                y: 162,
+                x,
+                y,
                 width: 300,
                 height: 88,
                 isiText: EMR_ISI_TEXT,
                 isiScrollSpeed: 30,
                 isiAutoStart: true,
+                isiStartDelay: 2,
                 fontSize: 12,
                 fill: '#006937',
             });
@@ -68,11 +82,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
         // The PI strip is a standalone layer, so it can be positioned and
         // z-ordered independently of the ISI tray.
         if (tool === 'piStrip') {
+            const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+                type: 'piStrip',
+                width: 300,
+                height: 20,
+            });
             addElement({
                 id: Date.now().toString(),
                 type: 'piStrip',
-                x: 0,
-                y: 142,
+                x,
+                y,
                 width: 300,
                 height: 20,
                 text: 'Prescribing Information',
@@ -96,12 +115,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
             const img = new Image();
             img.onload = () => {
                 const calculatedHeight = (300 / (img.width || 300)) * (img.height || 200);
+                const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+                    type: 'image',
+                    width: 300,
+                    height: calculatedHeight,
+                });
                 addElement({
                     id: Date.now().toString(),
                     type: 'image',
                     name: file.name,
-                    x: 100,
-                    y: 100,
+                    x,
+                    y,
                     width: 300,
                     height: calculatedHeight,
                     src: savedAsset.downloadUrl,

@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import type { DesignElement } from '../store/designStore';
 import { getElementBaseState, getElementKeyframes, getElementTransformOffset } from './keyframes';
+import { escapeHtml, sanitizeRichText } from './richText';
 import {
     applyIsiTextClickTags,
     buildAnimationStartEvent,
@@ -371,7 +372,8 @@ export async function buildBannerPackage({
             htmlBodyParts.push('          <div id="' + id + '" class="element"></div>');
             cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 100) + 'px; height: ' + (el.width || 100) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: 50%; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
         } else if (el.type === 'text') {
-            htmlBodyParts.push('          <div id="' + id + '" class="element">' + (el.text || '') + '</div>');
+            const textContent = el.richText ? sanitizeRichText(el.richText) : escapeHtml(el.text || '');
+            htmlBodyParts.push('          <div id="' + id + '" class="element">' + textContent + '</div>');
             cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 60) + 'px; z-index: ' + z + '; color: ' + (el.fill) + '; font-size: ' + (el.fontSize || 12) + 'px; font-family: ' + (el.fontFamily || 'Arial, sans-serif') + '; font-weight: ' + (el.fontWeight || 'normal') + '; font-style: ' + (el.fontStyle || 'normal') + '; text-decoration: ' + (el.textDecoration || 'none') + '; text-align: ' + (el.textAlign || 'left') + '; white-space: pre-wrap; line-height: ' + (el.lineHeight || 1.2) + '; letter-spacing: ' + (el.letterSpacing || 0) + 'px; overflow: hidden; transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
         } else if (el.type === 'image' && el.src) {
             const imgName = 'image-' + el.id + '.png';
