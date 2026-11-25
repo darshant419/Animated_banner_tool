@@ -80,6 +80,9 @@ export const Timeline: React.FC = () => {
     elements,
     selectedId,
     selectedKeyframe,
+    autoKeyframe,
+    toggleAutoKeyframe,
+    recordCanvasKeyframe,
     playheadTime,
     isPlaying,
     totalDuration,
@@ -224,25 +227,47 @@ export const Timeline: React.FC = () => {
     [pps, totalDuration, snapToGrid],
   );
 
-  const scrubTo = (t: number) => {
-    setPlayheadTime(t);
+  const lastScrubSyncRef = useRef<number>(0);
+
+  const scrubTo = (t: number, syncStore = true) => {
     playheadRef.current = t;
     setUiTime(t);
     if (needleRef.current) needleRef.current.style.transform = `translateX(${t * pps}px)`;
+    seekAllMasters(t);
+    if (syncStore) {
+      setPlayheadTime(t);
+    }
   };
 
   const startScrub = (e: React.PointerEvent) => {
     scrubRef.current.active = true;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    scrubTo(timeFromEvent(e.clientX, false));
+    lastScrubSyncRef.current = performance.now();
+    scrubTo(timeFromEvent(e.clientX, false), true);
   };
 
   const scrubMove = (e: React.PointerEvent) => {
     if (!scrubRef.current.active) return;
-    scrubTo(timeFromEvent(e.clientX, false));
+    const t = timeFromEvent(e.clientX, false);
+    const now = performance.now();
+    const shouldSync = now - lastScrubSyncRef.current >= 33;
+    if (shouldSync) {
+      lastScrubSyncRef.current = now;
+      scrubTo(t, true);
+    } else {
+      // Only update the needle position (cheap DOM write) without seeking
+      // the canvas or syncing React state on intermediate pointer moves.
+      playheadRef.current = t;
+      if (needleRef.current) needleRef.current.style.transform = `translateX(${t * pps}px)`;
+    }
   };
 
-  const endScrub = () => { scrubRef.current.active = false; };
+  const endScrub = () => {
+    if (!scrubRef.current.active) return;
+    scrubRef.current.active = false;
+    setPlayheadTime(playheadRef.current);
+    seekAllMasters(playheadRef.current);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
@@ -287,16 +312,12 @@ export const Timeline: React.FC = () => {
     const el = elements.find((x) => x.id === selectedId);
     if (!el) return;
     const base = getElementBaseState(el);
-    addKeyframe(el.id, {
-      id: `kf-${Date.now()}`,
-      time: Math.round(playheadTime * 100) / 100,
-      x: base.x, y: base.y,
-      opacity: base.opacity,
-      rotation: base.rotation,
+    recordCanvasKeyframe(el.id, {
+      x: base.x,
+      y: base.y,
       scaleX: base.scaleX,
       scaleY: base.scaleY,
-      blur: base.blur,
-      easing: 'power1.inOut',
+      rotation: base.rotation,
     });
   };
 
@@ -530,6 +551,24 @@ export const Timeline: React.FC = () => {
           >
             <Plus size={12} />
             <span>Keyframe</span>
+          </button>
+
+          <button
+            onClick={toggleAutoKeyframe}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
+              autoKeyframe
+                ? 'bg-amber-500/15 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+            style={{ border: `1px solid ${autoKeyframe ? '#f59e0b50' : '#222232'}` }}
+            title={
+              autoKeyframe
+                ? 'Auto-Keyframe is ON: Moving or scaling an element on canvas records keyframes at the playhead'
+                : 'Auto-Keyframe is OFF: Click to enable recording canvas moves as keyframes'
+            }
+          >
+            <span className={`w-2 h-2 rounded-full ${autoKeyframe ? 'bg-amber-400 animate-pulse' : 'bg-gray-500'}`} />
+            <span>Auto-Keyframe</span>
           </button>
         </div>
 
@@ -990,7 +1029,10 @@ export const Timeline: React.FC = () => {
                           onPointerCancel={endDragKf}
                           onClick={(e) => {
                             e.stopPropagation();
+                            selectElement(el.id);
                             selectKeyframe({ elementId: el.id, keyframeId: kf.id });
+                            setPlayheadTime(kf.time);
+                            seekAllMasters(kf.time);
                           }}
                         />
                       );

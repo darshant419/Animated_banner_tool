@@ -44,7 +44,7 @@ export const getElementTransformOffset = (el: DesignElement): { offsetX: number;
     // The rich HTML ISI overlay uses x/y as its top-left, not as a Konva pivot.
     if (el.type === 'isiScroll') return { offsetX: 0, offsetY: 0 };
     const w = Number(el.width) || 300;
-    const h = Number(el.height) || 200;
+    const h = Number(el.height) || (el.type === 'text' ? 60 : 200);
     return parseTransformOrigin(el.transformOrigin, w, h);
 };
 

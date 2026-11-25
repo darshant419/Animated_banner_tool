@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, HardDrive, Cloud } from 'lucide-react';
+import { AlertTriangle, HardDrive } from 'lucide-react';
 import { isFirebaseConfigured } from '../../services/firebase';
 
 /**

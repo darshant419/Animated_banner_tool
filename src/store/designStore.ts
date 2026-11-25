@@ -1,6 +1,7 @@
 import { create } from 'zustand';
+import { getElementBaseState } from '../utils/keyframes';
 
-export type ElementType = 'text' | 'image' | 'video' | 'isiScroll' | 'shape' | 'html' | 'piStrip';
+export type ElementType = 'text' | 'rect' | 'circle' | 'image' | 'video' | 'isiScroll' | 'shape' | 'html' | 'piStrip';
 
 export interface AnimationKeyframe {
     id: string;
@@ -345,8 +346,16 @@ interface DesignState {
     toggleLock: (id: string) => void;
 
     // Keyframe Actions
+    autoKeyframe: boolean;
+    setAutoKeyframe: (enabled: boolean) => void;
+    toggleAutoKeyframe: () => void;
     addKeyframe: (elementId: string, keyframe: AnimationKeyframe) => void;
     updateKeyframe: (elementId: string, keyframeId: string, updates: Partial<AnimationKeyframe>) => void;
+    recordCanvasKeyframe: (
+        elementId: string,
+        updates: { x?: number; y?: number; scaleX?: number; scaleY?: number; rotation?: number },
+        targetKeyframeId?: string
+    ) => void;
     removeKeyframe: (elementId: string, keyframeId: string) => void;
     selectKeyframe: (selection: SelectedKeyframe | null) => void;
     setPlayheadTime: (time: number) => void;
@@ -538,6 +547,7 @@ export const useDesignStore = create<DesignState>((set) => ({
     elements: [],
     selectedId: null,
     selectedKeyframe: null,
+    autoKeyframe: true,
     playheadTime: 0,
     isPlaying: false,
     previewPaused: false,
@@ -831,6 +841,145 @@ export const useDesignStore = create<DesignState>((set) => ({
         })),
 
     selectKeyframe: (selection) => set({ selectedKeyframe: selection }),
+
+    setAutoKeyframe: (enabled) => set({ autoKeyframe: enabled }),
+
+    toggleAutoKeyframe: () => set((state) => ({ autoKeyframe: !state.autoKeyframe })),
+
+    recordCanvasKeyframe: (elementId, updates, targetKeyframeId) =>
+        set((state) => {
+            const el = state.elements.find((e) => e.id === elementId);
+            if (!el) return state;
+
+            const base = getElementBaseState(el);
+            const playheadTime = Math.round(state.playheadTime * 100) / 100;
+            const anim = el.anim || { keyframes: [] };
+            let keyframes = [...anim.keyframes];
+
+            // 1. If targetKeyframeId is specified, update that specific keyframe
+            if (targetKeyframeId && keyframes.some((k) => k.id === targetKeyframeId)) {
+                keyframes = keyframes.map((k) =>
+                    k.id === targetKeyframeId
+                        ? {
+                              ...k,
+                              x: updates.x !== undefined ? updates.x : k.x,
+                              y: updates.y !== undefined ? updates.y : k.y,
+                              scaleX: updates.scaleX !== undefined ? updates.scaleX : k.scaleX,
+                              scaleY: updates.scaleY !== undefined ? updates.scaleY : k.scaleY,
+                              rotation: updates.rotation !== undefined ? updates.rotation : k.rotation,
+                          }
+                        : k
+                );
+                const updatedElements = state.elements.map((item) =>
+                    item.id === elementId
+                        ? {
+                              ...item,
+                              // If editing keyframe at 0s, keep element base position in sync
+                              x: playheadTime <= 0.04 && updates.x !== undefined ? updates.x : item.x,
+                              y: playheadTime <= 0.04 && updates.y !== undefined ? updates.y : item.y,
+                              anim: { ...anim, keyframes },
+                          }
+                        : item
+                );
+                return {
+                    ...saveHistory(state),
+                    ...withActiveElements(state, updatedElements),
+                };
+            }
+
+            // 2. Check if a keyframe already exists near current playheadTime (within 0.04s)
+            const existingIdx = keyframes.findIndex((k) => Math.abs(k.time - playheadTime) < 0.04);
+            if (existingIdx >= 0) {
+                const targetId = keyframes[existingIdx].id;
+                keyframes = keyframes.map((k, idx) =>
+                    idx === existingIdx
+                        ? {
+                              ...k,
+                              x: updates.x !== undefined ? updates.x : k.x,
+                              y: updates.y !== undefined ? updates.y : k.y,
+                              scaleX: updates.scaleX !== undefined ? updates.scaleX : k.scaleX,
+                              scaleY: updates.scaleY !== undefined ? updates.scaleY : k.scaleY,
+                              rotation: updates.rotation !== undefined ? updates.rotation : k.rotation,
+                          }
+                        : k
+                );
+                const updatedElements = state.elements.map((item) =>
+                    item.id === elementId
+                        ? {
+                              ...item,
+                              x: playheadTime <= 0.04 && updates.x !== undefined ? updates.x : item.x,
+                              y: playheadTime <= 0.04 && updates.y !== undefined ? updates.y : item.y,
+                              anim: { ...anim, keyframes },
+                          }
+                        : item
+                );
+                return {
+                    ...saveHistory(state),
+                    selectedKeyframe: { elementId, keyframeId: targetId },
+                    ...withActiveElements(state, updatedElements),
+                };
+            }
+
+            // 3. No existing keyframe at playheadTime:
+            // If the element has no keyframe at/near t=0, create an initial baseline keyframe at t=0
+            const hasStartFrame = keyframes.some((k) => k.time <= 0.04);
+            const newFrames: AnimationKeyframe[] = [];
+
+            if (!hasStartFrame && playheadTime > 0.04) {
+                newFrames.push({
+                    id: `kf-base-${Date.now()}`,
+                    time: 0,
+                    x: base.x,
+                    y: base.y,
+                    scaleX: base.scaleX,
+                    scaleY: base.scaleY,
+                    rotation: base.rotation,
+                    opacity: base.opacity,
+                    blur: base.blur,
+                    easing: 'power1.inOut',
+                });
+            }
+
+            const newKfId = `kf-${Date.now()}`;
+            newFrames.push({
+                id: newKfId,
+                time: playheadTime,
+                x: updates.x !== undefined ? updates.x : base.x,
+                y: updates.y !== undefined ? updates.y : base.y,
+                scaleX: updates.scaleX !== undefined ? updates.scaleX : base.scaleX,
+                scaleY: updates.scaleY !== undefined ? updates.scaleY : base.scaleY,
+                rotation: updates.rotation !== undefined ? updates.rotation : base.rotation,
+                opacity: base.opacity,
+                blur: base.blur,
+                easing: 'power1.inOut',
+            });
+
+            const updatedKeyframes = [...keyframes, ...newFrames].sort((a, b) => a.time - b.time);
+
+            const updatedElements = state.elements.map((item) => {
+                if (item.id !== elementId) return item;
+                return {
+                    ...item,
+                    enterAnimation: undefined,
+                    enterDelay: undefined,
+                    exitAnimation: undefined,
+                    exitDelay: undefined,
+                    animations: undefined,
+                    animation: undefined,
+                    animationDuration: undefined,
+                    animationDelay: undefined,
+                    animationLoop: undefined,
+                    anim: { ...anim, keyframes: updatedKeyframes },
+                };
+            });
+
+            return {
+                ...saveHistory(state),
+                selectedKeyframe: { elementId, keyframeId: newKfId },
+                totalDuration: extendForNewKeyframe(state.totalDuration, playheadTime),
+                ...withActiveElements(state, updatedElements),
+            };
+        }),
 
         setPlayheadTime: (time) => set((state) => ({
         playheadTime: Math.max(0, Math.min(time, state.totalDuration)),

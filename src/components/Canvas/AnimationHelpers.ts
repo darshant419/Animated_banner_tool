@@ -1,4 +1,4 @@
-﻿import gsap from 'gsap';
+import gsap from 'gsap';
 import Konva from 'konva';
 import type { DesignElement, AnimationKeyframe } from '../../store/designStore';
 import { getElementBaseState, getElementKeyframes, getElementTransformOffset, presetToKeyframes } from '../../utils/keyframes';
@@ -44,7 +44,8 @@ export const buildElementTimeline = (
         defaults: { overwrite: 'auto' },
         smoothChildTiming: true,
         onUpdate: () => {
-            node.getLayer()?.batchDraw();
+            const layer = node.getLayer();
+            layer?.batchDraw();
         },
     });
 
@@ -103,8 +104,10 @@ export const buildElementTimeline = (
     for (let i = 0; i < frames.length; i++) {
         const kf = frames[i];
         // When the pre-hidden hold tween already covers 0 -> first.time holding
-        // the exact same state, skip the redundant (identical) first tween.
-        if (i === 0 && preHidden) {
+        // the exact same state, or when the first keyframe is at t=0 (already set by
+        // timeline.set at line 99), skip the redundant first tween so it never conflicts
+        // with subsequent tweens or glitches on scrub.
+        if (i === 0 && (preHidden || kf.time <= 0.001)) {
             cursor = kf.time;
             continue;
         }
@@ -181,8 +184,13 @@ export const buildMasterTimeline = (
         repeat: loop ? -1 : 0,
         repeatDelay: 0,
         onUpdate: () => {
+            const drawnLayers = new Set<Konva.Layer>();
             nodes.forEach((node) => {
-                node.getLayer()?.batchDraw();
+                const layer = node.getLayer();
+                if (layer && !drawnLayers.has(layer)) {
+                    drawnLayers.add(layer);
+                    layer.batchDraw();
+                }
             });
         },
     });

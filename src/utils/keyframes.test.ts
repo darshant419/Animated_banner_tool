@@ -56,6 +56,11 @@ describe('getElementTransformOffset', () => {
         expect(getElementTransformOffset(makeElement({ width: 200, height: 60 })))
             .toEqual({ offsetX: 100, offsetY: 30 });
     });
+
+    it('uses the text canvas default height when no height is set', () => {
+        expect(getElementTransformOffset(makeElement({ width: 200, height: undefined })))
+            .toEqual({ offsetX: 100, offsetY: 30 });
+    });
 });
 
 describe('presetToKeyframes', () => {

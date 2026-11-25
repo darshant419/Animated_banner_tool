@@ -195,6 +195,43 @@ describe('designStore', () => {
             useDesignStore.getState().setPlayheadTime(-2);
             expect(useDesignStore.getState().playheadTime).toBe(0);
         });
+
+        it('records canvas keyframes at playhead and creates baseline keyframe at t=0', () => {
+            const store = useDesignStore.getState();
+            store.addElement(textEl());
+            store.setPlayheadTime(1.5);
+            store.recordCanvasKeyframe('el-1', { x: 250, y: 180, scaleX: 1.5, scaleY: 1.5 });
+
+            const state = useDesignStore.getState();
+            const frames = state.elements[0].anim!.keyframes;
+            expect(frames).toHaveLength(2);
+            expect(frames[0].time).toBe(0);
+            expect(frames[1].time).toBe(1.5);
+            expect(frames[1].x).toBe(250);
+            expect(frames[1].scaleX).toBe(1.5);
+            expect(state.selectedKeyframe?.keyframeId).toBe(frames[1].id);
+        });
+
+        it('updates an existing keyframe when recording canvas updates near its time', () => {
+            const store = useDesignStore.getState();
+            store.addElement(textEl());
+            store.setPlayheadTime(1.0);
+            store.recordCanvasKeyframe('el-1', { x: 100, y: 100 });
+            store.recordCanvasKeyframe('el-1', { x: 200, y: 300, scaleX: 2 });
+
+            const frames = useDesignStore.getState().elements[0].anim!.keyframes;
+            expect(frames).toHaveLength(2); // 0s and 1.0s
+            expect(frames[1]).toMatchObject({ time: 1.0, x: 200, y: 300, scaleX: 2 });
+        });
+
+        it('toggles autoKeyframe setting', () => {
+            const store = useDesignStore.getState();
+            expect(store.autoKeyframe).toBe(true);
+            store.toggleAutoKeyframe();
+            expect(useDesignStore.getState().autoKeyframe).toBe(false);
+            store.setAutoKeyframe(true);
+            expect(useDesignStore.getState().autoKeyframe).toBe(true);
+        });
     });
 
     describe('artboards / smart resize', () => {

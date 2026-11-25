@@ -112,8 +112,9 @@ const ElementShape = memo(function ElementShape({
         <Text
           ref={ref as any}
           {...commonProps}
+          height={el.height || 60}
           text={el.text}
-          fill={(el.richText || editingTextId === el.id) && !isPlaying ? 'rgba(0, 0, 0, 0)' : el.fill}
+          fill={el.richText || (editingTextId === el.id && !isPlaying) ? 'rgba(0, 0, 0, 0)' : el.fill}
           fontSize={el.fontSize}
           fontFamily={el.fontFamily}
           fontStyle={konvaFontStyle}
@@ -228,8 +229,12 @@ interface BoardStageProps {
 const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage }) => {
   const {
     selectedId,
+    selectedKeyframe,
+    autoKeyframe,
     updateElement,
     selectElement,
+    selectKeyframe,
+    recordCanvasKeyframe,
     totalDuration,
     isPlaying,
     playheadTime,
@@ -240,7 +245,10 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
 
   const trRef = useRef<Konva.Transformer>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<Map<string, Konva.Node>>(new Map());
+  const richTextRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [canvasOffset, setCanvasOffset] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
   const masterRef = useRef<gsap.core.Timeline | null>(null);
   const [guides, setGuides] = useState<{ x?: number, y?: number }[]>([]);
   const [editingText, setEditingText] = useState<{ id: string } | null>(null);
@@ -264,6 +272,26 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     else nodeRefs.current.delete(id);
   }, []);
 
+  const syncRichTextOverlay = useCallback((id: string) => {
+    const node = nodeRefs.current.get(id);
+    const overlay = richTextRefs.current.get(id);
+    if (!node || !overlay) return;
+    const offsetX = node.offsetX();
+    const offsetY = node.offsetY();
+    overlay.style.left = `${node.x() - offsetX}px`;
+    overlay.style.top = `${node.y() - offsetY}px`;
+    overlay.style.opacity = String(node.opacity());
+    overlay.style.transform = `rotate(${node.rotation()}deg) scale(${node.scaleX()}, ${node.scaleY()})`;
+  }, []);
+
+  const syncRichTextOverlays = useCallback(() => {
+    elements.forEach((el) => {
+      if (el.type === 'text' && el.richText && el.visible !== false) {
+        syncRichTextOverlay(el.id);
+      }
+    });
+  }, [elements, syncRichTextOverlay]);
+
   // Clean up node refs on unmount so stale Konva node references don't
   // leak into the next artboard when switching sizes.
   useEffect(() => {
@@ -271,6 +299,16 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       nodeRefs.current.clear();
     };
   }, []);
+
+  // Measure the canvas container position on screen so the inline text
+  // editor (portaled to document.body) can position itself relative to
+  // the canvas instead of the document origin.
+  useLayoutEffect(() => {
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    setCanvasOffset({ left: rect.left, top: rect.top });
+  }, [board.width, board.height]);
 
   // Clicking anywhere on a non-focused board makes it the active editing target.
   const activate = useCallback(() => {
@@ -331,25 +369,66 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       });
     });
     setGuides(resultGuides);
-  }, [getLineGuideStops]);
+    syncRichTextOverlay(e.target.id());
+  }, [getLineGuideStops, syncRichTextOverlay]);
 
   const handleDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
     setGuides([]);
-    updateElement(e.target.id(), { x: e.target.x(), y: e.target.y() });
-  }, [updateElement]);
+    const id = e.target.id();
+    const el = elements.find((item) => item.id === id);
+    const targetKf = selectedKeyframe && selectedKeyframe.elementId === id ? selectedKeyframe.keyframeId : undefined;
+    const hasKfAtPlayhead = Boolean(el?.anim?.keyframes?.some((k) => Math.abs(k.time - playheadTime) < 0.05));
+    const isKf = Boolean(targetKf || (autoKeyframe && (playheadTime > 0.04 || hasKfAtPlayhead)));
+
+    if (isKf) {
+      recordCanvasKeyframe(
+        id,
+        {
+          x: Math.round(e.target.x()),
+          y: Math.round(e.target.y()),
+          scaleX: Math.round(e.target.scaleX() * 100) / 100,
+          scaleY: Math.round(e.target.scaleY() * 100) / 100,
+          rotation: Math.round(e.target.rotation()),
+        },
+        targetKf,
+      );
+    } else {
+      updateElement(id, { x: e.target.x(), y: e.target.y() });
+    }
+  }, [elements, selectedKeyframe, autoKeyframe, playheadTime, recordCanvasKeyframe, updateElement]);
 
   const handleTransformEnd = useCallback((e: any) => {
     const node = e.target;
-    updateElement(node.id(), {
-      x: node.x(),
-      y: node.y(),
-      width: node.width() * node.scaleX(),
-      height: node.height() * node.scaleY(),
-      rotation: node.rotation(),
-    });
-    node.scaleX(1);
-    node.scaleY(1);
-  }, [updateElement]);
+    const id = node.id();
+    const el = elements.find((item) => item.id === id);
+    const targetKf = selectedKeyframe && selectedKeyframe.elementId === id ? selectedKeyframe.keyframeId : undefined;
+    const hasKfAtPlayhead = Boolean(el?.anim?.keyframes?.some((k) => Math.abs(k.time - playheadTime) < 0.05));
+    const isKf = Boolean(targetKf || (autoKeyframe && (playheadTime > 0.04 || hasKfAtPlayhead)));
+
+    if (isKf) {
+      recordCanvasKeyframe(
+        id,
+        {
+          x: Math.round(node.x()),
+          y: Math.round(node.y()),
+          scaleX: Math.round(node.scaleX() * 100) / 100,
+          scaleY: Math.round(node.scaleY() * 100) / 100,
+          rotation: Math.round(node.rotation()),
+        },
+        targetKf,
+      );
+    } else {
+      updateElement(id, {
+        x: node.x(),
+        y: node.y(),
+        width: node.width() * node.scaleX(),
+        height: node.height() * node.scaleY(),
+        rotation: node.rotation(),
+      });
+      node.scaleX(1);
+      node.scaleY(1);
+    }
+  }, [elements, selectedKeyframe, autoKeyframe, playheadTime, recordCanvasKeyframe, updateElement]);
 
   // Build this board's animation timeline and seek it with the shared playhead,
   // so previews animate on every visible size during playback.
@@ -362,13 +441,24 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       false,
     );
     masterRef.current.seek(playheadTime, false);
+    syncRichTextOverlays();
     // Force Konva to redraw the stage so elements render at their correct
     // positions immediately after switching artboards / sizes.
     stageRef.current?.batchDraw();
     // Let the Timeline drive this board's canvas at 60fps without a global store
     // update on every frame (keeps playback smooth and panels from re-rendering).
     registerMasterSeeker(board.id, (t) => {
-      masterRef.current?.seek(t, false);
+      if (masterRef.current) {
+        masterRef.current.seek(t, false);
+        stageRef.current?.batchDraw();
+        if (trRef.current && selectedId) {
+          trRef.current.forceUpdate();
+          trRef.current.getLayer()?.batchDraw();
+        }
+        // syncRichTextOverlays() is intentionally NOT called here — it runs
+        // via the playheadTime useEffect below (throttled to ~30fps) instead
+        // of every GSAP frame (60fps), which caused jank during scrubbing.
+      }
     });
     return () => {
       unregisterMasterSeeker(board.id);
@@ -376,19 +466,41 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       masterRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- playheadTime intentionally excluded: it only seeks, and rebuilding each tick is wasteful.
-  }, [elements, totalDuration, board.width, board.height]);
+  }, [elements, totalDuration, board.width, board.height, syncRichTextOverlays, selectedId]);
 
   useEffect(() => {
     if (masterRef.current) {
       masterRef.current.seek(playheadTime, false);
+      stageRef.current?.batchDraw();
+      if (trRef.current && selectedId) {
+        trRef.current.forceUpdate();
+        trRef.current.getLayer()?.batchDraw();
+      }
     }
-  }, [playheadTime]);
+    syncRichTextOverlays();
+  }, [playheadTime, selectedId, syncRichTextOverlays]);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      syncRichTextOverlays();
+      return;
+    }
+
+    let frameId = 0;
+    const updateOverlays = () => {
+      syncRichTextOverlays();
+      frameId = requestAnimationFrame(updateOverlays);
+    };
+    updateOverlays();
+    return () => cancelAnimationFrame(frameId);
+  }, [isPlaying, syncRichTextOverlays]);
 
   // When paused at the very start, show the designer base state so elements stay
   // visible while editing (their entrance animation may begin hidden/offset at t=0).
   useEffect(() => {
     if (isPlaying || playheadTime !== 0) return;
     elements.forEach((el) => {
+      if (el.anim && el.anim.keyframes.length > 0) return;
       const node = nodeRefs.current.get(el.id);
       if (!node) return;
       const b = getElementBaseState(el);
@@ -400,7 +512,8 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       node.scaleY(b.scaleY || 1);
     });
     nodeRefs.current.forEach((n) => n.getLayer()?.batchDraw());
-  }, [isPlaying, playheadTime, elements]);
+    syncRichTextOverlays();
+  }, [isPlaying, playheadTime, elements, syncRichTextOverlays]);
 
   // Transformer selection G�� only the active board shows selection handles, so
   // picking a component in the multi-size view never highlights other sizes.
@@ -422,6 +535,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   }, [selectedId, elements, isActive]);
 
   // Keyboard nudging G�� only the active board handles it (others are mounted too).
+  // Keyboard nudging
   useEffect(() => {
     if (!isActive) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -429,20 +543,45 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       if (!selectedId || isPlaying) return;
       const el = elements.find((el) => el.id === selectedId);
       if (!el || el.locked) return;
+
+      const node = nodeRefs.current.get(selectedId);
+      const currentX = node ? node.x() : (el.x || 0);
+      const currentY = node ? node.y() : (el.y || 0);
+
+      const targetKf = selectedKeyframe && selectedKeyframe.elementId === selectedId ? selectedKeyframe.keyframeId : undefined;
+      const hasKf = Boolean(el.anim?.keyframes?.some((k) => Math.abs(k.time - playheadTime) < 0.05));
+      const isKf = Boolean(targetKf || (autoKeyframe && (playheadTime > 0.04 || hasKf)));
+
       const step = e.shiftKey ? 10 : 1;
-      if (e.key === 'ArrowUp') { updateElement(selectedId, { y: (el.y || 0) - step }); e.preventDefault(); }
-      else if (e.key === 'ArrowDown') { updateElement(selectedId, { y: (el.y || 0) + step }); e.preventDefault(); }
-      else if (e.key === 'ArrowLeft') { updateElement(selectedId, { x: (el.x || 0) - step }); e.preventDefault(); }
-      else if (e.key === 'ArrowRight') { updateElement(selectedId, { x: (el.x || 0) + step }); e.preventDefault(); }
+      let dx = 0;
+      let dy = 0;
+      if (e.key === 'ArrowUp') { dy = -step; e.preventDefault(); }
+      else if (e.key === 'ArrowDown') { dy = step; e.preventDefault(); }
+      else if (e.key === 'ArrowLeft') { dx = -step; e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { dx = step; e.preventDefault(); }
+      else return;
+
+      if (isKf) {
+        recordCanvasKeyframe(
+          selectedId,
+          { x: currentX + dx, y: currentY + dy },
+          targetKf,
+        );
+      } else {
+        updateElement(selectedId, { x: (el.x || 0) + dx, y: (el.y || 0) + dy });
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isActive, selectedId, elements, updateElement, isPlaying]);
+  }, [isActive, selectedId, elements, updateElement, recordCanvasKeyframe, selectedKeyframe, autoKeyframe, playheadTime, isPlaying]);
 
   const checkDeselect = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
     activate();
     const clickedOnEmpty = e.target === e.target.getStage() || e.target.name() === 'canvas-bg';
-    if (clickedOnEmpty) selectElement(null);
+    if (clickedOnEmpty) {
+      selectElement(null);
+      selectKeyframe(null);
+    }
   };
 
   // Hand cursor over elements, default arrow over the empty canvas.
@@ -482,13 +621,25 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
   };
 
   const editingElement = editingText ? elements.find((e) => e.id === editingText.id) : null;
+  const selectedElement = elements.find((el) => el.id === selectedId);
+  const activeKfTarget = selectedKeyframe && selectedKeyframe.elementId === selectedId ? selectedKeyframe.keyframeId : undefined;
+  const hasKfAtPlayhead = Boolean(selectedElement?.anim?.keyframes?.some((k) => Math.abs(k.time - playheadTime) < 0.05));
+  const isEditingKeyframe = Boolean(activeKfTarget || (autoKeyframe && (playheadTime > 0.04 || hasKfAtPlayhead)));
 
   return (
     <div
+      ref={canvasContainerRef}
       className={`relative bg-white overflow-hidden transition-shadow ${isActive ? 'shadow-xl' : 'shadow-md'
         }`}
       style={{ width: board.width, height: board.height, border: '1px solid #000000', boxSizing: 'border-box' }}
     >
+      {isActive && selectedId && isEditingKeyframe && !isPlaying && (
+        <div className="absolute top-2 left-2 z-30 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#121218]/90 text-amber-300 border border-amber-500/40 shadow-lg backdrop-blur">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+          <span>{activeKfTarget ? 'Editing Keyframe' : 'Recording Keyframe'} @ {playheadTime.toFixed(2)}s</span>
+          <span className="text-gray-400 text-[10px] ml-1">(Drag / Scale to animate)</span>
+        </div>
+      )}
       <Stage
         ref={(stage) => {
           stageRef.current = stage;
@@ -507,8 +658,8 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
             width={board.width}
             height={board.height}
             fill={canvasBackground}
-            onClick={() => selectElement(null)}
-            onTap={() => selectElement(null)}
+            onClick={() => { selectElement(null); selectKeyframe(null); }}
+            onTap={() => { selectElement(null); selectKeyframe(null); }}
           />
           {canvasBackgroundImage && (
             <BackgroundImage src={canvasBackgroundImage} width={board.width} height={board.height} />
@@ -541,19 +692,37 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
             />
           ))}
 
-          {isActive && selectedId && <Transformer ref={trRef} keepRatio={true} />}
+          {isActive && selectedId && (
+            <Transformer
+              ref={trRef}
+              keepRatio={true}
+              borderStroke={isEditingKeyframe ? '#f59e0b' : 'rgb(0, 161, 255)'}
+              anchorStroke={isEditingKeyframe ? '#f59e0b' : 'rgb(0, 161, 255)'}
+              anchorFill="#ffffff"
+              borderDash={isEditingKeyframe ? [4, 4] : undefined}
+              onTransform={() => {
+                if (selectedId) syncRichTextOverlay(selectedId);
+              }}
+            />
+          )}
         </Layer>
       </Stage>
 
-      {!isPlaying && elements.map((el, index) => (
-        el.type === 'text' && el.richText && el.visible !== false ? (
+      {elements.map((el, index) => {
+        if (el.type !== 'text' || !el.richText || el.visible === false) return null;
+        const { offsetX, offsetY } = getElementTransformOffset(el);
+        return (
           <div
             key={`rich-text-${el.id}`}
+            ref={(node) => {
+              if (node) richTextRefs.current.set(el.id, node);
+              else richTextRefs.current.delete(el.id);
+            }}
             aria-hidden="true"
-            className="pointer-events-none absolute overflow-hidden"
+            className="absolute overflow-hidden"
             style={{
-              left: el.x,
-              top: el.y,
+              left: el.x - offsetX,
+              top: el.y - offsetY,
               width: el.width || 300,
               height: el.height || 60,
               zIndex: index + 1,
@@ -571,11 +740,12 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
               overflowWrap: 'break-word',
               transform: `rotate(${el.rotation || 0}deg) scale(${el.scaleX || 1}, ${el.scaleY || 1})`,
               transformOrigin: el.transformOrigin || '50% 50%',
+              pointerEvents: isPlaying ? 'auto' : 'none',
             }}
             dangerouslySetInnerHTML={{ __html: sanitizeRichText(el.richText) }}
           />
-        ) : null
-      ))}
+        );
+      })}
 
       {/* Click-tag areas: an HTML overlay (outside the Konva stage, so it can
           never leak into the PNG export) marking where the banner is clickable.
@@ -613,6 +783,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       {editingElement && (
         <InlineTextEditor
           element={editingElement}
+          canvasOffset={canvasOffset}
           onCommit={(richText, text) => {
             updateElement(editingElement.id, { richText, text });
             setEditingText(null);

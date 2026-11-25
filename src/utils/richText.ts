@@ -6,12 +6,13 @@ const isSafeLink = (href: string): boolean =>
   /^(https?:|mailto:|tel:|\/|#)/i.test(href.trim());
 
 const copySafeStyles = (source: HTMLElement, target: HTMLElement) => {
-  const styles: Array<['color' | 'fontSize' | 'fontWeight' | 'fontStyle' | 'textDecoration' | 'lineHeight' | 'marginTop' | 'verticalAlign', RegExp]> = [
+  const styles: Array<['color' | 'fontSize' | 'fontWeight' | 'fontStyle' | 'textDecoration' | 'textAlign' | 'lineHeight' | 'marginTop' | 'verticalAlign', RegExp]> = [
     ['color', /^[#(),.%\w\s-]+$/],
     ['fontSize', /^(inherit|\d+(?:\.\d+)?(?:px|pt|em|rem|%))$/i],
     ['fontWeight', /^(normal|bold|[1-9]00)$/i],
     ['fontStyle', /^(normal|italic|oblique)$/i],
     ['textDecoration', /^(none|underline|line-through|overline)$/i],
+    ['textAlign', /^(left|center|right|justify)$/i],
     ['lineHeight', /^(normal|\d+(?:\.\d+)?(?:px|em|rem|%)?)$/i],
     ['marginTop', /^-?\d+(?:\.\d+)?(?:px|pt|em|rem|%)$/i],
     ['verticalAlign', /^(baseline|super|sub)$/i],
@@ -39,11 +40,13 @@ const appendSanitizedNode = (source: Node, target: Node) => {
   }
 
   const element = document.createElement(source.tagName === 'FONT' ? 'span' : source.tagName.toLowerCase());
+  if (source.tagName === 'P' || source.tagName === 'DIV') element.style.margin = '0';
   if (source.tagName === 'A') {
     const href = source.getAttribute('href') || '';
     if (isSafeLink(href)) {
       element.setAttribute('href', href);
       element.setAttribute('rel', 'noopener noreferrer');
+      element.style.textDecoration = 'underline';
     }
   }
   copySafeStyles(source, element);

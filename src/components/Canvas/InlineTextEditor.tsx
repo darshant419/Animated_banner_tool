@@ -1,12 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent, MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { AlignCenter, AlignLeft, AlignRight, Link2 } from 'lucide-react';
 import type { DesignElement } from '../../store/designStore';
+import { getElementTransformOffset } from '../../utils/keyframes';
 import { escapeHtml, sanitizeRichText } from '../../utils/richText';
 
 interface InlineTextEditorProps {
   element: DesignElement;
   canvasBackground: string;
+  canvasOffset: { left: number; top: number };
   onCommit: (richText: string, text: string) => void;
   onCancel: () => void;
 }
@@ -72,11 +75,12 @@ const unwrapTags = (root: Node, tagNames: string[]) => {
   });
 };
 
-export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel }: InlineTextEditorProps) {
+export function InlineTextEditor({ element, canvasBackground, canvasOffset, onCommit, onCancel }: InlineTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef<Range | null>(null);
   const [activeFormats, setActiveFormats] = useState({ bold: false, italic: false, underline: false, superscript: false });
+  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>(element.textAlign || 'left');
   const [topSpace, setTopSpace] = useState('0');
   const [textColor, setTextColor] = useState(colorToHex(element.fill || '#000000'));
   const [toolbarPosition, setToolbarPosition] = useState<{ left: number; top: number } | null>(null);
@@ -126,6 +130,10 @@ export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel
     });
     const textElement = getInlineElement(range.startContainer) || editor;
     setTextColor(colorToHex(window.getComputedStyle(textElement).color));
+    const alignment = window.getComputedStyle(textElement).textAlign;
+    if (alignment === 'left' || alignment === 'center' || alignment === 'right') {
+      setTextAlign(alignment);
+    }
   };
 
   const getSelectedBlock = (): HTMLElement | null => {
@@ -281,6 +289,15 @@ export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel
     saveSelection();
   };
 
+  const applyAlignment = (alignment: 'left' | 'center' | 'right') => {
+    if (!restoreSelection()) return;
+    const block = getSelectedBlock();
+    if (block) block.style.textAlign = alignment;
+    setTextAlign(alignment);
+    saveSelection();
+    refreshFormats();
+  };
+
   const insertLink = () => {
     if (!restoreSelection()) return;
     const url = window.prompt('Enter a link URL');
@@ -296,6 +313,7 @@ export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel
     const anchor = document.createElement('a');
     anchor.href = url.trim();
     anchor.rel = 'noopener noreferrer';
+    anchor.style.textDecoration = 'underline';
     if (range.collapsed) {
       anchor.textContent = url.trim();
       range.insertNode(anchor);
@@ -379,11 +397,33 @@ export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel
 
   const initialHtml = element.richText || escapeHtml(element.text || '');
   const safeInitialHtml = useMemo(() => ({ __html: sanitizeRichText(initialHtml) }), [initialHtml]);
+  const { offsetX, offsetY } = getElementTransformOffset(element);
 
-  return (
+  // Compute screen position: canvas coords + canvas container offset.
+  // Clamp so the editor never goes outside the canvas boundaries.
+  const editorScreenLeft = useMemo(() => {
+    const raw = canvasOffset.left + element.x - offsetX;
+    return Math.max(canvasOffset.left, Math.min(raw, canvasOffset.left + Math.max(0, (element.width || 300) - 30)));
+  }, [canvasOffset.left, element.x, offsetX, element.width]);
+
+  const editorScreenTop = useMemo(() => {
+    const raw = canvasOffset.top + element.y - offsetY;
+    return Math.max(canvasOffset.top, Math.min(raw, canvasOffset.top + Math.max(0, (element.height || 60) - 30)));
+  }, [canvasOffset.top, element.y, offsetY, element.height]);
+
+  return createPortal(
     <>
-      {createPortal(
-        <div ref={toolbarRef} role="toolbar" aria-label="Rich text formatting toolbar" style={toolbarStyle}>
+      {/* Backdrop to dim background and block interaction with other popups */}
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9999,
+          background: 'rgba(0, 0, 0, 0.3)',
+        }}
+        onClick={onCancel}
+      />
+      <div ref={toolbarRef} role="toolbar" aria-label="Rich text formatting toolbar" style={toolbarStyle}>
         <button type="button" aria-label="Bold" aria-pressed={activeFormats.bold} style={buttonStyle(activeFormats.bold)} onMouseDown={handleToolbarMouseDown} onClick={() => toggleInlineTag('strong', ['B', 'STRONG'], 'fontWeight', { fontWeight: 'normal' })}>
           <strong>B</strong>
         </button>
@@ -394,10 +434,19 @@ export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel
           <u>U</u>
         </button>
         <button type="button" aria-label="Insert link" title="Insert link" style={buttonStyle()} onMouseDown={handleToolbarMouseDown} onClick={insertLink}>
-          ↗
+          <Link2 size={14} />
         </button>
         <button type="button" aria-label="Superscript" aria-pressed={activeFormats.superscript} title="Superscript" style={buttonStyle(activeFormats.superscript)} onMouseDown={handleToolbarMouseDown} onClick={() => toggleInlineTag('sup', ['SUP'], 'verticalAlign', { verticalAlign: 'baseline', fontSize: 'inherit' })}>
           x²
+        </button>
+        <button type="button" aria-label="Align left" aria-pressed={textAlign === 'left'} title="Align left" style={buttonStyle(textAlign === 'left')} onMouseDown={handleToolbarMouseDown} onClick={() => applyAlignment('left')}>
+          <AlignLeft size={14} />
+        </button>
+        <button type="button" aria-label="Align center" aria-pressed={textAlign === 'center'} title="Align center" style={buttonStyle(textAlign === 'center')} onMouseDown={handleToolbarMouseDown} onClick={() => applyAlignment('center')}>
+          <AlignCenter size={14} />
+        </button>
+        <button type="button" aria-label="Align right" aria-pressed={textAlign === 'right'} title="Align right" style={buttonStyle(textAlign === 'right')} onMouseDown={handleToolbarMouseDown} onClick={() => applyAlignment('right')}>
+          <AlignRight size={14} />
         </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           Color
@@ -450,9 +499,7 @@ export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel
         </label>
         <button type="button" style={{ ...buttonStyle(), marginLeft: 'auto' }} onClick={onCancel}>Cancel</button>
         <button type="button" style={{ ...buttonStyle(), background: '#111827', color: '#ffffff' }} onClick={commit}>Done</button>
-        </div>,
-        document.body,
-      )}
+        </div>
       <div
         ref={editorRef}
         contentEditable
@@ -471,11 +518,13 @@ export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel
         }}
         dangerouslySetInnerHTML={safeInitialHtml}
         style={{
-          position: 'absolute',
-          left: element.x,
-          top: element.y,
+          position: 'fixed',
+          left: editorScreenLeft,
+          top: editorScreenTop,
           width: element.width || 300,
           height: element.height || 60,
+          transform: `rotate(${element.rotation || 0}deg) scale(${element.scaleX || 1}, ${element.scaleY || 1})`,
+          transformOrigin: element.transformOrigin || '50% 50%',
           boxSizing: 'border-box',
           overflow: 'auto',
           padding: 2,
@@ -492,10 +541,11 @@ export function InlineTextEditor({ element, canvasBackground, onCommit, onCancel
           textAlign: element.textAlign || 'left',
           whiteSpace: 'pre-wrap',
           overflowWrap: 'break-word',
-          zIndex: 200,
+          zIndex: 10001,
           cursor: 'text',
         }}
       />
-    </>
+    </>,
+    document.body,
   );
 }

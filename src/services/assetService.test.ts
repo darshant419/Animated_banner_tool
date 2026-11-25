@@ -90,7 +90,7 @@ describe('assetService upload metadata', () => {
 
         await uploadAndSaveAsset(makeFile(), undefined, 'proj_123');
 
-        const [file, , projId] = uploadMediaAssetMock.mock.calls[0];
+        const [, , projId] = uploadMediaAssetMock.mock.calls[0];
         expect(projId).toBe('proj_123');
         const payload = setDocMock.mock.calls[0][1];
         expect(payload.storagePath).toBe('projects/proj_123/assets/1234567890_hero.png');

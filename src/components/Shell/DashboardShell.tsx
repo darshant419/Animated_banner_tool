@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layout, Home, Images, LayoutTemplate, FolderOpen, Plus } from 'lucide-react';
+import { Layout, Home, Images, LayoutTemplate, FolderOpen } from 'lucide-react';
 import { navigate } from '../../router/hashRouter';
 import { FirebaseStatusBanner } from './FirebaseStatusBanner';
 
