@@ -146,7 +146,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
     };
 
     return (
-        <div className="w-16 bg-black border-r border-white/10 flex flex-col items-center py-4 gap-3 z-10 overflow-y-auto">
+        <div className="w-14 sm:w-16 shrink-0 bg-[#0e0e14] border-r border-white/[0.06] flex flex-col items-center py-3 gap-1.5 sm:gap-2 z-10 overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
             <ToolButton
                 icon={<MousePointer2 size={20} />}
                 label="Select"
@@ -228,11 +228,11 @@ const ToolButton: React.FC<ToolButtonProps> = ({ icon, label, isActive, onClick 
     <button
         onClick={onClick}
         title={label}
-        className={`p-3 rounded-lg flex flex-col items-center gap-1 transition-colors
-      ${isActive ? 'bg-red-500/20 text-red-400' : 'text-gray-400 hover:bg-white/10 hover:text-white'}
+        className={`w-11 sm:w-12 shrink-0 py-2 rounded-xl flex flex-col items-center gap-1 transition-colors
+      ${isActive ? 'bg-red-500/15 text-red-400 ring-1 ring-red-500/30' : 'text-gray-400 hover:bg-white/[0.06] hover:text-white'}
     `}
     >
         {icon}
-        <span className="text-[10px] font-medium">{label}</span>
+        <span className="text-[9.5px] font-medium leading-none truncate max-w-full px-0.5">{label}</span>
     </button>
 );

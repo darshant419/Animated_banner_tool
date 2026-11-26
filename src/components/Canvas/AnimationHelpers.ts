@@ -1,7 +1,8 @@
 import gsap from 'gsap';
 import Konva from 'konva';
 import type { DesignElement, AnimationKeyframe } from '../../store/designStore';
-import { getElementBaseState, getElementKeyframes, getElementTransformOffset, presetToKeyframes } from '../../utils/keyframes';
+import { setLivePlayhead } from '../../utils/livePlayhead';
+import { getElementBaseState, getElementKeyframes, getElementTransformOffset, getLoopPlays, presetToKeyframes } from '../../utils/keyframes';
 
 // Registry of per-board master-timeline seek callbacks so the Timeline can drive
 // every visible artboard's canvas at 60fps without forcing a global store update
@@ -14,6 +15,7 @@ export const unregisterMasterSeeker = (id: string) => {
     masterSeekers.delete(id);
 };
 export const seekAllMasters = (time: number) => {
+    setLivePlayhead(time);
     masterSeekers.forEach((seek) => seek(time));
 };
 
@@ -200,7 +202,9 @@ export const buildMasterTimeline = (
         if (!node) return;
         const built = buildElementTimeline(node, el, totalDuration);
         if (built.loop && built.endTime > 0) {
-            built.timeline.repeat(-1);
+            // N plays = the first run + (N - 1) repeats; unset / 0 = forever.
+            const plays = getLoopPlays(el.animationLoopCount);
+            built.timeline.repeat(plays > 0 ? plays - 1 : -1);
             built.timeline.repeatDelay(0);
             master.add(built.timeline, 0);
         } else {

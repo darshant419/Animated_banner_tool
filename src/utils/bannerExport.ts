@@ -2,6 +2,7 @@ import type { AnimationKeyframe } from '../store/designStore';
 import { CLICK_TAG_NAMES } from '../store/designStore';
 import type { ClickTagName, DesignElement, LinkClickTag, LinkTarget } from '../store/designStore';
 import type { ElementBaseState } from './keyframes';
+import { getLoopPlays } from './keyframes';
 
 /**
  * Pure string builders for the exported HTML banner package
@@ -904,6 +905,8 @@ export const buildAnimationStartEvent = (opts: {
     startDelayMs: number;
     durationMs: number;
     loop: boolean;
+    /** With `loop`: number of plays (unset / 0 = infinite). */
+    loopCount?: number;
     animationName: string;
 }): string =>
     '      { time: ' + opts.startDelayMs + ', action: () => {\n' +
@@ -913,7 +916,9 @@ export const buildAnimationStartEvent = (opts: {
     '          el.style.animation = "none";\n' +
     '          void el.offsetWidth;\n' +
     '          el.style.animation = ' + jsStringLiteral(
-        opts.durationMs + 'ms linear' + (opts.loop ? ' infinite' : '') + ' ' + opts.animationName,
+        opts.durationMs + 'ms linear' +
+        (opts.loop ? ' ' + (getLoopPlays(opts.loopCount) || 'infinite') : '') +
+        ' ' + opts.animationName,
     ) + ';\n' +
     // Must come after the shorthand, which resets animation-fill-mode to none.
     '          el.style.animationFillMode = "forwards";\n' +
@@ -937,10 +942,44 @@ export const buildWordAnimationEvent = (opts: {
     id: string;
     startDelayMs: number;
 }): string =>
-    '      { time: ' + opts.startDelayMs + ', action: () => {\\n' +
-    '        var el = document.getElementById(' + jsStringLiteral(opts.id) + ');\\n' +
-    '        if (el) el.classList.add(\"animate-words\");\\n' +
+    '      { time: ' + opts.startDelayMs + ', action: () => {\n' +
+    '        var el = document.getElementById(' + jsStringLiteral(opts.id) + ');\n' +
+    '        if (el) el.classList.add("animate-words");\n' +
     '      } },';
+
+/**
+ * JS timeline entries for a letter/word text effect (utils/textAnimations).
+ * Re-assigning innerHTML recreates the unit spans, which resets every CSS
+ * animation to its first (hidden) frame — so a looping banner replays the
+ * effect from scratch each cycle. A reset at time 0 hides the text again
+ * before a delayed effect starts.
+ */
+export const buildTextAnimationEvents = (opts: {
+    id: string;
+    startDelayMs: number;
+}): string[] => {
+    const idLit = jsStringLiteral(opts.id);
+    const events: string[] = [];
+    if (opts.startDelayMs > 0) {
+        events.push(
+            '      { time: 0, action: () => {\n' +
+            '        var el = document.getElementById(' + idLit + ');\n' +
+            '        if (el && el.classList.contains("ta-run")) { el.classList.remove("ta-run"); el.innerHTML = el.innerHTML; }\n' +
+            '      } },',
+        );
+    }
+    events.push(
+        '      { time: ' + opts.startDelayMs + ', action: () => {\n' +
+        '        var el = document.getElementById(' + idLit + ');\n' +
+        '        if (!el) return;\n' +
+        '        el.classList.remove("ta-run");\n' +
+        '        el.innerHTML = el.innerHTML;\n' +
+        '        void el.offsetWidth;\n' +
+        '        el.classList.add("ta-run");\n' +
+        '      } },',
+    );
+    return events;
+};
 
 /**
  * JS timeline entry wiring the ISI tray's scrolling in the exported banner.

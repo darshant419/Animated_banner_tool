@@ -23,7 +23,9 @@ import {
     type BannerClickTag,
     type ElementLinkAssignment,
     buildWordAnimationEvent,
+    buildTextAnimationEvents,
 } from './bannerExport';
+import { TEXT_ANIMATION_BASE_CSS_LINES, buildTextAnimationExport, getTextAnimation } from './textAnimations';
 
 /**
  * Builds the exported HTML5 banner package (index.html + css/styles.css +
@@ -109,9 +111,13 @@ const BASE_CSS_LINES: string[] = [
     '.animate-words .word { animation-play-state: running; }',
     '@keyframes word-fade-up { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }',
     '@keyframes word-slide-up { 0% { opacity: 0; transform: translateY(1000px); } 100% { opacity: 1; transform: translateY(0); } }',
+    '@keyframes word-moving-letters { 0% { transform: translateX(100px) rotate(-90deg); opacity: 0; } 100% { transform: translateX(0) rotate(0deg); opacity: 1; } }',
     '@keyframes word-slide-down { 0% { opacity: 0; transform: translateY(-1000px); } 100% { opacity: 1; transform: translateY(0); } }',
     '@keyframes word-slide-left { 0% { opacity: 0; transform: translateX(-1000px); } 100% { opacity: 1; transform: translateX(0); } }',
     '@keyframes word-slide-right { 0% { opacity: 0; transform: translateX(1000px); } 100% { opacity: 1; transform: translateX(0); } }',
+
+    // ── Letter / word text effects (Moving Letters catalog, utils/textAnimations) ──
+    ...TEXT_ANIMATION_BASE_CSS_LINES,
 ];
 
 const blobToDataUrl = (blob: Blob): Promise<string> =>
@@ -390,8 +396,25 @@ export async function buildBannerPackage({
             const wordDur = (el as any).wordAnimationDuration || 0.8;
             const wordDelay = (el as any).wordAnimationDelay || 0;
 
+            const textEffect = getTextAnimation((el as any).textAnimation);
+
             let innerHtml = textContent;
-            if (wordAnim && !el.richText) {
+            if (textEffect) {
+                const built = buildTextAnimationExport({
+                    id,
+                    effect: textEffect,
+                    contentHtml: textContent,
+                    speed: (el as any).textAnimationSpeed,
+                });
+                innerHtml = built.html;
+                cssLines.push(...built.css);
+                timelineEvents.push(
+                    ...buildTextAnimationEvents({
+                        id,
+                        startDelayMs: Math.round(((el as any).textAnimationDelay || 0) * 1000),
+                    }),
+                );
+            } else if (wordAnim && !el.richText) {
                 const words = (el.text || '').split(/\s+/).filter((w: string) => w.length > 0);
                 if (words.length > 0) {
                     const animName = 'word-' + wordStyle;
@@ -406,7 +429,7 @@ export async function buildBannerPackage({
 
             // Word-by-word text animation: trigger the animate-words class at the
             // configured delay so each word's staggered CSS animation starts on time.
-            if (wordAnim && !el.richText) {
+            if (wordAnim && !el.richText && !textEffect) {
                 timelineEvents.push(
                     buildWordAnimationEvent({
                         id,
@@ -498,6 +521,7 @@ export async function buildBannerPackage({
                     startDelayMs: animationCss.startDelayMs,
                     durationMs: animationCss.durationMs,
                     loop: loopAnim,
+                    loopCount: el.animationLoopCount,
                     animationName: animationCss.animationName,
                 }),
             );

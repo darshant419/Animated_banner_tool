@@ -346,7 +346,7 @@ export const BannerDetailPage: React.FC<BannerDetailPageProps> = ({ id }) => {
 
     return (
         <DashboardShell activePath="/banners">
-            <div className="mx-auto max-w-7xl px-6 py-8">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-8">
                 <button
                     onClick={() => navigate('/banners')}
                     className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition"

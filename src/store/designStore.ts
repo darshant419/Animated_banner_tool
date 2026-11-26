@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getElementBaseState } from '../utils/keyframes';
+import { getLivePlayhead } from '../utils/livePlayhead';
 
 export type ElementType = 'text' | 'rect' | 'circle' | 'image' | 'video' | 'isiScroll' | 'shape' | 'html' | 'piStrip';
 
@@ -69,6 +70,8 @@ export interface ElementTimedAnimation {
     delay?: number;
     ease?: string;
     loop?: boolean;
+    /** With `loop`: how many times the block plays. Unset / 0 = until the banner ends. */
+    loopCount?: number;
 }
 
 export interface Artboard {
@@ -127,6 +130,8 @@ export interface DesignElement {
     animationDuration?: number;
     animationDelay?: number;
     animationLoop?: boolean;
+    /** How many times a looping animation plays. Unset / 0 = loop forever. */
+    animationLoopCount?: number;
     // Creatopy-style entrance / exit animations (preset ids from Animista catalog)
     enterAnimation?: string;
     exitAnimation?: string;
@@ -147,9 +152,15 @@ export interface DesignElement {
     endBehavior?: 'stay' | 'hide';
     // Word-by-word text animation (like "Real experiences. Real tips." stagger)
     textWordAnimation?: boolean;
-    wordAnimationStyle?: 'fade-up' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right';
+    wordAnimationStyle?: 'fade-up' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'moving-letters';
     wordAnimationDuration?: number;
     wordAnimationDelay?: number;
+    // Letter/word text effect from the Moving Letters catalog (utils/textAnimations).
+    textAnimation?: string;
+    /** Seconds from banner start before the text effect begins. */
+    textAnimationDelay?: number;
+    /** Playback speed multiplier for the text effect (1 = original timing). */
+    textAnimationSpeed?: number;
     // Additional timed animation blocks, each playing inside its own timeframe
     animations?: ElementTimedAnimation[];
     // Hover Effects
@@ -776,6 +787,7 @@ export const useDesignStore = create<DesignState>((set) => ({
                     animationDuration: undefined,
                     animationDelay: undefined,
                     animationLoop: undefined,
+                    animationLoopCount: undefined,
                     anim: { ...anim, keyframes },
                 };
             }),
@@ -800,6 +812,7 @@ export const useDesignStore = create<DesignState>((set) => ({
                         animationDuration: undefined,
                         animationDelay: undefined,
                         animationLoop: undefined,
+                        animationLoopCount: undefined,
                         anim: { ...anim, keyframes },
                     };
                 })
@@ -977,6 +990,7 @@ export const useDesignStore = create<DesignState>((set) => ({
                     animationDuration: undefined,
                     animationDelay: undefined,
                     animationLoop: undefined,
+                    animationLoopCount: undefined,
                     anim: { ...anim, keyframes: updatedKeyframes },
                 };
             });
@@ -993,11 +1007,19 @@ export const useDesignStore = create<DesignState>((set) => ({
         playheadTime: Math.max(0, Math.min(time, state.totalDuration)),
     })),
 
-    setIsPlaying: (playing) => set((state) => ({
-        isPlaying: playing,
-        // Stopping playback clears any hover-pause so the next run starts fresh.
-        previewPaused: playing ? state.previewPaused : false,
-    })),
+    setIsPlaying: (playing) => set((state) => {
+        // During playback the Timeline drives the canvases directly (no store
+        // updates per frame), so on stop adopt the frame actually on screen —
+        // in the same update as isPlaying, so nothing renders a stale time.
+        const live = getLivePlayhead();
+        const stopping = state.isPlaying && !playing && live !== null;
+        return {
+            isPlaying: playing,
+            // Stopping playback clears any hover-pause so the next run starts fresh.
+            previewPaused: playing ? state.previewPaused : false,
+            ...(stopping ? { playheadTime: Math.max(0, Math.min(live as number, state.totalDuration)) } : {}),
+        };
+    }),
     setPreviewPaused: (paused) => set({ previewPaused: paused }),
     setTotalDuration: (duration) => set((state) => ({
         ...saveHistory(state),

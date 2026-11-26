@@ -268,6 +268,13 @@ export const presetToKeyframes = (
     }
 };
 
+/**
+ * Normalises a loop-count setting: a positive whole number of plays, or 0 for
+ * "loop forever" (unset, 0, negative or invalid).
+ */
+export const getLoopPlays = (count?: number): number =>
+    typeof count === 'number' && Number.isFinite(count) && count > 0 ? Math.max(1, Math.round(count)) : 0;
+
 /** Expands the element's additional timed animation blocks into absolute times. */
 const buildTimedBlocks = (el: DesignElement, totalDuration?: number): AnimationKeyframe[] =>
     (el.animations || [])
@@ -284,7 +291,9 @@ const buildTimedBlocks = (el: DesignElement, totalDuration?: number): AnimationK
                 const bound = totalDuration && totalDuration > windowStart ? totalDuration : windowStart + b.duration;
                 frames = [];
                 let offset = 0;
-                while (windowStart + offset < bound) {
+                const plays = getLoopPlays(b.loopCount);
+                let played = 0;
+                while (windowStart + offset < bound && (plays === 0 || played++ < plays)) {
                     pattern.forEach((f) => frames.push({ ...f, id: uid(), time: f.time + offset }));
                     offset += b.duration;
                 }

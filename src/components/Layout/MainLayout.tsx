@@ -2,33 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Toolbar, type ToolType } from '../Toolbar/Toolbar';
 import { PropertiesPanel } from '../PropertiesPanel/PropertiesPanel';
 import { DesignCanvas } from '../Canvas/DesignCanvas';
-import {
-    Layout,
-    Layers,
-    Undo2,
-    Redo2,
-    RefreshCcw,
-    Play,
-    Pause,
-    Plus,
-    Download,
-    FileCode2,
-    ChevronDown,
-    Save,
-    FolderOpen,
-    Loader2,
-    Check,
-    Home,
-    Bookmark,
-    ExternalLink,
-} from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useDesignStore, getArtboardPresets } from '../../store/designStore';
 import { VariationsPanel } from '../Variations/VariationsPanel';
 import { TemplatesPanel } from '../TemplatesPanel/TemplatesPanel';
 import { AssetsPanel } from '../AssetsPanel/AssetsPanel';
 import { LayersPanel } from '../LayersPanel/LayersPanel';
 import { Timeline } from '../Timeline/Timeline';
-import { AnimationDialog } from '../AnimationDialog/AnimationDialog';
+import { AnimationDialog, type AnimationStudioTab } from '../AnimationDialog/AnimationDialog';
 import { ProjectsModal } from '../Projects/ProjectsModal';
 import type { AppMode } from '../ModeSelect/ModeSelect';
 import { getTemplateById } from '../../templates/emrTemplates';
@@ -37,7 +18,8 @@ import { uploadProjectThumbnail } from '../../services/storageService';
 import { saveBannerTemplate } from '../../services/templateService';
 import { collectBannerImageUrls } from '../../utils/bannerImages';
 import { SaveTemplateDialog, type SaveTemplateValues } from '../Templates/SaveTemplateDialog';
-import { navigate } from '../../router/hashRouter';
+import { EditorHeader } from './EditorHeader';
+import { useMediaQuery, BREAKPOINTS } from '../../hooks/useMediaQuery';
 
 type MainLayoutProps = {
     mode: AppMode;
@@ -49,29 +31,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         selectedId,
         undo,
         redo,
-        past,
-        future,
         removeElement,
         reset,
         loadTemplate,
         clearHistory,
         artboards,
         activeArtboardId,
-        setActiveArtboard,
-        addArtboard,
         addCampaignSizes,
-        isPlaying,
-        setIsPlaying,
-        // Project metadata
         projectId,
         projectName,
         setProjectId,
-        setProjectName,
-        isSaving,
         setIsSaving,
-        lastSavedAt,
         setLastSavedAt,
-        // Canvas attributes
         canvasWidth,
         canvasHeight,
         totalDuration,
@@ -82,15 +53,40 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         clickTagUrl,
         clickTagTarget,
         elements,
-    } = useDesignStore();
+    } = useDesignStore(useShallow((s) => ({
+        selectedId: s.selectedId,
+        undo: s.undo,
+        redo: s.redo,
+        removeElement: s.removeElement,
+        reset: s.reset,
+        loadTemplate: s.loadTemplate,
+        clearHistory: s.clearHistory,
+        artboards: s.artboards,
+        activeArtboardId: s.activeArtboardId,
+        addCampaignSizes: s.addCampaignSizes,
+        projectId: s.projectId,
+        projectName: s.projectName,
+        setProjectId: s.setProjectId,
+        setIsSaving: s.setIsSaving,
+        setLastSavedAt: s.setLastSavedAt,
+        canvasWidth: s.canvasWidth,
+        canvasHeight: s.canvasHeight,
+        totalDuration: s.totalDuration,
+        loop: s.loop,
+        canvasBackground: s.canvasBackground,
+        canvasBackgroundImage: s.canvasBackgroundImage,
+        useAsClickTag: s.useAsClickTag,
+        clickTagUrl: s.clickTagUrl,
+        clickTagTarget: s.clickTagTarget,
+        elements: s.elements,
+    })));
 
     const [activeTool, setActiveTool] = useState<ToolType>('select');
-    const [showAddArtboard, setShowAddArtboard] = useState(false);
     const [showCampaign, setShowCampaign] = useState(false);
     const [showProjectsModal, setShowProjectsModal] = useState(false);
     const [campaignSelection, setCampaignSelection] = useState<Set<string>>(new Set());
     const [isAnimationStudioOpen, setIsAnimationStudioOpen] = useState(false);
-    const [animationStudioTab, setAnimationStudioTab] = useState<'in' | 'out' | 'loop' | 'sequence'>('in');
+    const [animationStudioTab, setAnimationStudioTab] = useState<AnimationStudioTab>('in');
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [showTemplateDialog, setShowTemplateDialog] = useState(false);
     const [savingTemplate, setSavingTemplate] = useState(false);
@@ -287,241 +283,71 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ mode, onChangeMode }) =>
         }
     }, [mode, projectId, reset, loadTemplate, clearHistory]);
 
-    const availablePresets = getArtboardPresets().filter(
-        (p) => !artboards.some((a) => a.width === p.width && a.height === p.height),
-    );
+    const isLg = useMediaQuery(BREAKPOINTS.lg);
+    const isMd = useMediaQuery(BREAKPOINTS.md);
+    const isXl = useMediaQuery(BREAKPOINTS.xl);
+    const [propsOpen, setPropsOpen] = useState(false);
+
+    // Tablet widths: selecting a layer slides the Properties drawer in (phones
+    // keep the canvas clear and use the header toggle instead).
+    useEffect(() => {
+        if (selectedId && isMd && !isXl) setPropsOpen(true);
+    }, [selectedId, isMd, isXl]);
+
+    const sidePanel =
+        activeTool === 'layers' ? <LayersPanel /> :
+        activeTool === 'assets' ? <AssetsPanel /> :
+        activeTool === 'templates' ? <TemplatesPanel /> :
+        activeTool === 'variations' ? <VariationsPanel /> :
+        null;
 
     return (
-        <div className="flex flex-col h-screen overflow-hidden bg-[#1e1e26]">
-            {/* Header */}
-            <header className="h-14 bg-black border-b border-white/10 flex items-center px-3 gap-2 sm:gap-3 shrink-0">
-                <button
-                    onClick={() => navigate('/')}
-                    className="p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition shrink-0"
-                    title="Back to dashboard"
-                >
-                    <Home size={16} />
-                </button>
+        <div className="flex flex-col h-screen overflow-hidden bg-[#0a0a0f]">
+            <EditorHeader
+                mode={mode}
+                onChangeMode={onChangeMode}
+                onSave={handleSaveProject}
+                saveSuccess={saveSuccess}
+                onOpenProjects={() => setShowProjectsModal(true)}
+                onSaveTemplate={() => setShowTemplateDialog(true)}
+                templateSaved={templateSaved}
+                onOpenCampaign={() => setShowCampaign(true)}
+                propertiesToggle={isXl ? undefined : { open: propsOpen, onToggle: () => setPropsOpen((v) => !v) }}
+            />
 
-                <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-red-800 rounded-lg flex items-center justify-center text-white shadow-sm">
-                        <Layout size={18} />
-                    </div>
-                    <div>
-                        <div className="font-bold text-white leading-none">Banner Studio</div>
-                        <div className="text-[10px] text-gray-400 mt-0.5 hidden sm:block">Animated HTML5 builder</div>
-                    </div>
-                    <span className={`ml-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${mode === 'emr'
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        : 'bg-red-500/10 text-red-400 border-red-500/30'
-                        }`}
-                    >
-                        {mode === 'emr' ? 'EMR' : 'ANIMATED'}
-                    </span>
-                    {onChangeMode && (
-                        <button
-                            onClick={onChangeMode}
-                            className="flex items-center gap-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10 border border-white/10 px-2 py-1 rounded-md transition"
-                            title="Switch mode"
-                        >
-                            <RefreshCcw size={12} />
-                            <span className="hidden sm:inline">Switch</span>
-                        </button>
-                    )}
-                </div>
-
-                <div className="h-6 w-px bg-white/10" />
-
-                {/* Project Title & Library Button */}
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => setShowProjectsModal(true)}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition"
-                        title="Browse saved banner projects"
-                    >
-                        <FolderOpen size={13} className="text-red-400" />
-                        <span className="hidden sm:inline">Projects</span>
-                    </button>
-
-                    <input
-                        type="text"
-                        value={projectName}
-                        onChange={(e) => setProjectName(e.target.value)}
-                        placeholder="Untitled Banner"
-                        className="bg-transparent hover:bg-white/5 focus:bg-[#15151c] border border-transparent hover:border-white/10 focus:border-red-500 rounded px-2 py-1 text-xs font-semibold text-gray-100 focus:outline-none transition w-[110px] sm:w-40 max-w-[180px] truncate"
-                        title="Click to rename banner project"
-                    />
-
-                    <button
-                        onClick={handleSaveProject}
-                        disabled={isSaving}
-                        className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium border transition ${
-                            saveSuccess
-                                ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40'
-                                : 'bg-red-600 hover:bg-red-700 text-white border-red-500'
-                        }`}
-                        title="Save project to Firestore (Ctrl+S)"
-                    >
-                        {isSaving ? (
-                            <Loader2 size={12} className="animate-spin" />
-                        ) : saveSuccess ? (
-                            <Check size={12} />
-                        ) : (
-                            <Save size={12} />
-                        )}
-                        <span>{isSaving ? 'Saving...' : saveSuccess ? 'Saved' : 'Save'}</span>
-                    </button>
-
-                    <button
-                        onClick={() => setShowTemplateDialog(true)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition ${
-                            templateSaved
-                                ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/40'
-                                : 'bg-white/5 text-gray-300 hover:text-white border-white/10'
-                        }`}
-                        title="Save this design (all sizes + images) as a reusable template"
-                    >
-                        {templateSaved ? <Check size={12} /> : <Bookmark size={12} />}
-                        <span className="hidden lg:inline">{templateSaved ? 'Template saved' : 'Save as template'}</span>
-                    </button>
-
-                    {projectId && (
-                        <button
-                            onClick={() => navigate(`/banners/${projectId}`)}
-                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-white/10 text-gray-300 hover:text-white transition"
-                            title="Open this banner's own page with a live preview"
-                        >
-                            <ExternalLink size={12} />
-                            <span className="hidden xl:inline">Banner page</span>
-                        </button>
-                    )}
-
-                    {lastSavedAt && !saveSuccess && (
-                        <span className="text-[10px] text-gray-400 hidden xl:inline">
-                            Saved {new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                    )}
-                </div>
-
-                <div className="h-6 w-px bg-white/10" />
-
-                {/* Artboards */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                    {artboards.map((ab) => (
-                        <button
-                            key={ab.id}
-                            onClick={() => setActiveArtboard(ab.id)}
-                            className={`px-2.5 py-1 rounded-md text-xs font-medium border transition ${activeArtboardId === ab.id
-                                ? 'bg-red-600 text-white border-red-600'
-                                : 'bg-white/5 text-gray-300 border-white/10 hover:border-red-500/60'
-                                }`}
-                            title={`${ab.label} — ${ab.width}x${ab.height}`}
-                        >
-                            {ab.width}×{ab.height}
-                        </button>
-                    ))}
-
-                    <button
-                        onClick={() => setShowCampaign(true)}
-                        className="hidden sm:flex px-2 py-1 rounded-md text-xs font-medium border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition items-center gap-1"
-                        title="Generate multiple banner sizes from one design"
-                    >
-                        <Layers size={12} />
-                    </button>
-
-                    <div className="relative">
-                        <button
-                            onClick={() => setShowAddArtboard(!showAddArtboard)}
-                            className="px-2 py-1 rounded-md text-xs font-medium border border-white/10 text-gray-300 hover:border-red-500/60 hover:text-red-400 flex items-center gap-1"
-                            title="Add size"
-                        >
-                            <Plus size={12} /> <ChevronDown size={10} />
-                        </button>
-                        {showAddArtboard && (
-                            <div className="absolute top-full mt-1 left-0 bg-[#15151c] rounded-lg shadow-lg border border-[#2a2a35] py-1 z-[10000] min-w-[180px]">
-                                {availablePresets.length === 0 && (
-                                    <div className="px-3 py-2 text-xs text-gray-400">All common sizes added</div>
-                                )}
-                                {availablePresets.map((p) => (
-                                    <button
-                                        key={p.label}
-                                        onClick={() => {
-                                            addArtboard(p.width, p.height, p.label);
-                                            setShowAddArtboard(false);
-                                        }}
-                                        className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-red-500/10 hover:text-red-400"
-                                    >
-                                        {p.label} · {p.width}×{p.height}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="h-6 w-px bg-white/10" />
-
-                <div className="hidden sm:flex items-center gap-1">
-                    <button
-                        onClick={undo}
-                        disabled={past.length === 0}
-                        className="p-1.5 text-gray-300 hover:bg-white/10 hover:text-white rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                        title="Undo (Ctrl+Z)"
-                    >
-                        <Undo2 size={16} />
-                    </button>
-                    <button
-                        onClick={redo}
-                        disabled={future.length === 0}
-                        className="p-1.5 text-gray-300 hover:bg-white/10 hover:text-white rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                        title="Redo (Ctrl+Y)"
-                    >
-                        <Redo2 size={16} />
-                    </button>
-                </div>
-
-                <div className="flex-1" />
-
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => setIsPlaying(!isPlaying)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${isPlaying
-                            ? 'bg-red-600 text-white hover:bg-red-700'
-                            : 'bg-red-600 text-white hover:bg-red-500/100'
-                            }`}
-                    >
-                        {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-                        <span className="hidden sm:inline">{isPlaying ? 'Stop' : 'Preview'}</span>
-                    </button>
-                    <button
-                        onClick={() => window.dispatchEvent(new Event('export-html'))}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition"
-                    >
-                        <FileCode2 size={14} /><span className="ml-1 hidden sm:inline">Export HTML</span>
-                    </button>
-                    <button
-                        onClick={() => window.dispatchEvent(new Event('export-canvas'))}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 transition"
-                    >
-                        <Download size={14} /><span className="ml-1 hidden sm:inline">PNG</span>
-                    </button>
-                </div>
-            </header>
-
-            {/* Main Content */}
-            <div className="flex flex-1 overflow-hidden">
+            {/* Main Content — panels dock on wide screens and become overlays /
+                drawers on narrower ones so the canvas always keeps its space. */}
+            <div className="flex flex-1 overflow-hidden relative">
                 <Toolbar activeTool={activeTool} onToolChange={setActiveTool} />
                 <div className="flex-1 flex flex-col min-w-0 bg-[#1a1a21]">
-                    <div className="flex-1 flex min-h-0">
-                        {activeTool === 'layers' && <LayersPanel />}
-                        {activeTool === 'assets' && <AssetsPanel />}
-                        {activeTool === 'templates' && <TemplatesPanel />}
-                        {activeTool === 'variations' && <VariationsPanel />}
+                    <div className="flex-1 flex min-h-0 relative">
+                        {sidePanel && (isLg ? sidePanel : (
+                            <>
+                                <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-[1px]" onClick={() => setActiveTool('select')} />
+                                <div className="absolute left-0 top-0 bottom-0 z-50 flex max-w-[88vw] shadow-[8px_0_30px_rgba(0,0,0,0.5)]">
+                                    {sidePanel}
+                                </div>
+                            </>
+                        ))}
                         <DesignCanvas />
                     </div>
                     <Timeline />
                 </div>
-                <PropertiesPanel />
+                {isXl ? (
+                    <PropertiesPanel />
+                ) : (
+                    <>
+                        {propsOpen && (
+                            <div className="absolute inset-0 z-[55] bg-black/40 backdrop-blur-[1px]" onClick={() => setPropsOpen(false)} />
+                        )}
+                        <div
+                            className={`absolute top-0 right-0 bottom-0 z-[56] flex max-w-[92vw] transition-transform duration-200 ease-out shadow-[-8px_0_30px_rgba(0,0,0,0.5)] ${propsOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}
+                            aria-hidden={!propsOpen}
+                        >
+                            <PropertiesPanel />
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Multi-size campaign modal */}

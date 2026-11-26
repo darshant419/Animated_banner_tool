@@ -112,7 +112,7 @@ export const ImagesPage: React.FC = () => {
 
     return (
         <DashboardShell activePath="/images">
-            <div className="mx-auto max-w-7xl px-6 py-8">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-8">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight text-gray-50">Image Library</h1>

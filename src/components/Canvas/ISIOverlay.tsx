@@ -4,17 +4,25 @@ import { getIsiBulletSpacing, getPiStripStyle } from '../../utils/bannerExport';
 interface ISIOverlayProps {
   element: DesignElement;
   isActive: boolean;
-  /** True while the preview is playing. The ISI tray has NO animation — it is
-   *  a static tray with the editable content + logo. This flag only toggles
-   *  the tray's interactivity (manual wheel / scrollbar while previewing). */
+  /** True while the preview is playing. This flag only toggles the tray's
+   *  interactivity (manual wheel / scrollbar while previewing). The layer's
+   *  timeline animations are applied from outside via `registerBox`; the
+   *  content scroll runs on the tray's own independent clock. */
   isAnimating?: boolean;
   /** All design elements — lets the tray find a PI strip docked to it so it
    *  can render the strip as a pinned, full-bleed header. */
   allElements?: DesignElement[];
+  /** Hands the tray's root node to the canvas, which makes it follow the
+   *  element's animated Konva node (entrance / exit / loop / keyframes). */
+  registerBox?: (node: HTMLDivElement | null) => void;
 }
 
-export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = false, allElements }) => {
+export const ISIOverlay: React.FC<ISIOverlayProps> = ({ element, isAnimating = false, allElements, registerBox }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    registerBox?.(containerRef.current);
+    return () => registerBox?.(null);
+  }, [registerBox]);
   const contentRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);

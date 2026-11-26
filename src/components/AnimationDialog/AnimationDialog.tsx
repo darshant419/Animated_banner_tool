@@ -3,7 +3,7 @@ import {
     X, Sparkles, Search, Layers,
     ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
     ArrowUpLeft, ArrowUpRight, ArrowDownLeft, ArrowDownRight,
-    Dot, Check, Zap, FastForward, RefreshCw,
+    Dot, Check, Zap, FastForward, RefreshCw, Type,
 } from 'lucide-react';
 import { useDesignStore } from '../../store/designStore';
 import {
@@ -16,11 +16,16 @@ import {
     type AnimationDirection,
 } from '../../utils/animations';
 import { applyStaggeredDelays, type StaggerOrder } from '../../utils/keyframes';
+import { getTextAnimation } from '../../utils/textAnimations';
+import { TextAnimationPanel } from './TextAnimationPanel';
+import { LoopCountControl } from '../Animation/LoopCountControl';
+
+export type AnimationStudioTab = 'in' | 'out' | 'loop' | 'text' | 'sequence';
 
 interface AnimationDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    initialTab?: 'in' | 'out' | 'loop' | 'sequence';
+    initialTab?: AnimationStudioTab;
 }
 
 // TheBrief-style color accents per animation type
@@ -28,6 +33,7 @@ const TAB_META = {
     in: { color: '#1bbfa7', bg: '#1bbfa715', border: '#1bbfa730', label: 'Entrance', icon: <Zap size={13} /> },
     loop: { color: '#9b7df8', bg: '#9b7df815', border: '#9b7df830', label: 'Loop & Emphasis', icon: <RefreshCw size={13} /> },
     out: { color: '#e4567d', bg: '#e4567d15', border: '#e4567d30', label: 'Exit', icon: <FastForward size={13} /> },
+    text: { color: '#f5b942', bg: '#f5b94215', border: '#f5b94230', label: 'Text Animation', icon: <Type size={13} /> },
     sequence: { color: '#9b7df8', bg: '#9b7df815', border: '#9b7df830', label: 'Sequence', icon: <Layers size={13} /> },
 };
 
@@ -68,7 +74,7 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
 
     const selectedElement = elements.find((el) => el.id === selectedId);
 
-    const [activeTab, setActiveTab] = useState<'in' | 'out' | 'loop' | 'sequence'>(initialTab);
+    const [activeTab, setActiveTab] = useState<AnimationStudioTab>(initialTab);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('All');
     const [staggerGap, setStaggerGap] = useState(0.2);
@@ -108,7 +114,10 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
     const activeDirection = currentPreset === 'none' ? null : getActiveDirection(currentPreset);
     const hasDirections = Object.keys(directionVariants).length > 0;
 
-    const tabPresets = useMemo(() => getPresetsForTab(activeTab), [activeTab]);
+    const tabPresets = useMemo(
+        () => (activeTab === 'text' || activeTab === 'sequence' ? [] : getPresetsForTab(activeTab)),
+        [activeTab],
+    );
 
     const availableCategories = useMemo(() => {
         const cats = new Set<string>();
@@ -271,10 +280,10 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
 
                 {/* ── Tab nav ──────────────────────────────────────────────── */}
                 <div
-                    className="flex items-center px-5 gap-1 shrink-0"
-                    style={{ height: 46, background: '#0d0d16', borderBottom: '1px solid #1a1a28' }}
+                    className="flex items-center px-3 sm:px-5 gap-1 shrink-0 overflow-x-auto"
+                    style={{ height: 46, background: '#0d0d16', borderBottom: '1px solid #1a1a28', scrollbarWidth: 'none' }}
                 >
-                    {(['in', 'loop', 'out', 'sequence'] as const).map((t) => {
+                    {(['in', 'loop', 'out', 'text', 'sequence'] as const).map((t) => {
                         const meta = TAB_META[t];
                         const active = activeTab === t;
                         return (
@@ -302,10 +311,15 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                 </div>
 
                 {/* ── Content ──────────────────────────────────────────────── */}
-                {activeTab !== 'sequence' ? (
-                    <div className="flex-1 flex min-h-0">
+                {activeTab === 'text' ? (
+                    <TextAnimationPanel
+                        element={selectedElement}
+                        onChange={(patch) => selectedElement && updateElement(selectedElement.id, patch)}
+                    />
+                ) : activeTab !== 'sequence' ? (
+                    <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-y-auto md:overflow-visible">
                         {/* Left: search + grid */}
-                        <div className="flex-1 flex flex-col min-w-0" style={{ borderRight: '1px solid #1a1a28' }}>
+                        <div className="flex-1 flex flex-col min-w-0 min-h-[320px] md:min-h-0 md:border-r border-[#1a1a28]">
                             {/* Search + categories */}
                             <div
                                 className="px-4 py-3 space-y-2 shrink-0"
@@ -470,8 +484,8 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
 
                         {/* Right: controls */}
                         <div
-                            className="shrink-0 flex flex-col overflow-y-auto"
-                            style={{ width: 280, background: '#0d0d16', gap: 0 }}
+                            className="shrink-0 flex flex-col md:overflow-y-auto w-full md:w-[280px] border-t md:border-t-0 border-[#1a1a28]"
+                            style={{ background: '#0d0d16', gap: 0 }}
                         >
                             {/* Direction pad */}
                             <div className="p-4" style={{ borderBottom: '1px solid #1a1a28' }}>
@@ -622,6 +636,19 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                                         style={{ accentColor: '#8a8aaa' }}
                                     />
                                 </div>
+
+                                {/* Repeat count — loop tab only */}
+                                {activeTab === 'loop' && (
+                                    <div className="space-y-2">
+                                        <span className="text-xs" style={{ color: '#8a8aaa' }}>Repeat</span>
+                                        <LoopCountControl
+                                            value={selectedElement?.animationLoopCount}
+                                            onChange={(n) => selectedElement && updateElement(selectedElement.id, { animationLoopCount: n })}
+                                            accent={accent.color}
+                                            disabled={!selectedElement || currentPreset === 'none'}
+                                        />
+                                    </div>
+                                )}
 
                                 {/* Easing */}
                                 <div className="space-y-2">
@@ -856,13 +883,21 @@ export const AnimationDialog: React.FC<AnimationDialogProps> = ({
                             className="font-bold px-2.5 py-1 rounded-lg"
                             style={{ background: '#13131e', border: '1px solid #1e1e2e', color: '#c0c0d8' }}
                         >
-                            {animationLabel(currentPreset)}
+                            {activeTab === 'text'
+                                ? getTextAnimation(selectedElement?.textAnimation)?.label || 'None'
+                                : animationLabel(currentPreset)}
                         </span>
                     </div>
 
                     <div className="flex items-center gap-2">
                         <button
-                            onClick={() => handleSelectPreset('none')}
+                            onClick={() => {
+                                if (activeTab === 'text') {
+                                    if (selectedElement) updateElement(selectedElement.id, { textAnimation: undefined });
+                                } else {
+                                    handleSelectPreset('none');
+                                }
+                            }}
                             className="px-4 py-1.5 rounded-xl text-xs transition"
                             style={{ color: '#6a6a8a' }}
                             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = '#c0c0d8'; (e.currentTarget as HTMLElement).style.background = '#1a1a28'; }}

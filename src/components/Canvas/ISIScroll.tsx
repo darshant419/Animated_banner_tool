@@ -33,12 +33,14 @@ interface ISIScrollProps {
     fontSize?: number;
     fill?: string;
     onDragEnd?: (e: Konva.KonvaEventObject<DragEvent>) => void;
+    onTransformEnd?: (e: Konva.KonvaEventObject<Event>) => void;
     onClick?: () => void;
     onDblClick?: () => void;
     onMouseEnter?: (e: Konva.KonvaEventObject<MouseEvent>) => void;
     onMouseLeave?: (e: Konva.KonvaEventObject<MouseEvent>) => void;
     draggable?: boolean;
     isAnimating?: boolean;
+    onResizeEnd?: (newWidth: number, newHeight: number) => void;
     // New Pro Features
     isiLogoSrc?: string;
     isiLogoWidth?: number;
@@ -79,6 +81,7 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
     fontSize = 12,
     fill = '#000000',
     onDragEnd,
+    onTransformEnd,
     onClick,
     onDblClick,
     draggable = true,
@@ -182,6 +185,7 @@ export const ISIScroll = React.forwardRef<Konva.Group, ISIScrollProps>(function 
             y={effectiveY}
             draggable={draggable}
             onDragEnd={onDragEnd}
+            onTransformEnd={onTransformEnd}
             onClick={onClick}
             onTap={onClick}
             onDblClick={onDblClick}

@@ -19,6 +19,8 @@ import {
     Bold, Italic, Underline, Link as LinkIcon, Type, List, Sparkles, Upload, ExternalLink, RotateCcw,
 } from 'lucide-react';
 import { uploadMediaAsset } from '../../services/storageService';
+import { TEXT_ANIMATIONS } from '../../utils/textAnimations';
+import { LoopCountControl } from '../Animation/LoopCountControl';
 
 /**
  * Preset options come straight from the shared Animista catalog, grouped by
@@ -1048,6 +1050,60 @@ return (
                     </div>
                 )}
 
+                {/* Text Animation (letter / word effects — Moving Letters catalog) */}
+                {selectedElement.type === 'text' && (
+                    <div className="space-y-2 border-t border-[#232330] pt-4">
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Text Animation</label>
+                            <button
+                                onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'text' } }))}
+                                className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition"
+                                title="Browse all text animations in Animation Studio"
+                            >
+                                <Sparkles size={12} />
+                                <span>Studio</span>
+                            </button>
+                        </div>
+                        <select
+                            value={selectedElement.textAnimation || ''}
+                            onChange={(e) => updateElement(selectedElement.id, { textAnimation: e.target.value || undefined })}
+                            className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                        >
+                            <option value="">None</option>
+                            {TEXT_ANIMATIONS.map((fx, i) => (
+                                <option key={fx.id} value={fx.id}>{String(i + 1).padStart(2, '0')} · {fx.label}</option>
+                            ))}
+                        </select>
+                        {selectedElement.textAnimation && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="text-xs text-gray-400 mb-1 block" title="Seconds from the banner start before the text effect begins">Start (s)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                        value={selectedElement.textAnimationDelay ?? 0}
+                                        onChange={(e) => updateElement(selectedElement.id, { textAnimationDelay: Math.max(0, Number(e.target.value)) })}
+                                        className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 mb-1 block" title="Playback speed (1 = original timing)">Speed (×)</label>
+                                    <input
+                                        type="number"
+                                        min="0.25"
+                                        max="4"
+                                        step="0.25"
+                                        value={selectedElement.textAnimationSpeed ?? 1}
+                                        onChange={(e) => updateElement(selectedElement.id, { textAnimationSpeed: Math.min(4, Math.max(0.25, Number(e.target.value) || 1)) })}
+                                        className="w-full border border-[#2a2a35] rounded px-2 py-1.5 text-sm focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Animation Controls */}
                 <div className="space-y-3.5 border-t border-[#232330] pt-4">
                     <div className="flex items-center justify-between">
@@ -1091,41 +1147,6 @@ return (
                                 onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'in' } }))}
                                 className="p-1.5 rounded-lg bg-[#20202c] border border-[#2e2e40] text-amber-400 hover:bg-[#2a2a3a] transition shrink-0"
                                 title="Browse all presets in Animation Studio"
-                            >
-                                <Sparkles size={14} />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Loop & Emphasis Animation Dropdown (spin, pulse, float, ken burns…) */}
-                    <div>
-                        <label className="text-xs text-gray-400 mb-1 block">Loop &amp; Emphasis</label>
-                        <div className="flex items-center gap-2">
-                            <select
-                                value={loopValue}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    handleChange('animation', val === 'none' ? undefined : val);
-                                    handleChange('animationLoop', val !== 'none');
-                                }}
-                                className="flex-1 border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
-                            >
-                                <option value="none">None</option>
-                                {loopGroups.map((group) => (
-                                    <optgroup key={group.label} label={group.label}>
-                                        {group.options.map((opt) => (
-                                            <option key={opt.value} value={opt.value}>
-                                                {opt.label}
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                ))}
-                            </select>
-
-                            <button
-                                onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'loop' } }))}
-                                className="p-1.5 rounded-lg bg-[#20202c] border border-[#2e2e40] text-amber-400 hover:bg-[#2a2a3a] transition shrink-0"
-                                title="Browse all loop & emphasis presets in Animation Studio"
                             >
                                 <Sparkles size={14} />
                             </button>
@@ -1254,6 +1275,58 @@ return (
                             <span>Sequence & Stagger All Layers</span>
                         </button>
                     </div>
+                </div>
+
+                {/* Loop Animation — its own section: loop/emphasis preset + repeat count */}
+                <div className="space-y-3 border-t border-[#232330] pt-4">
+                    <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Loop Animation</label>
+                        <button
+                            onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'loop' } }))}
+                            className="text-[11px] font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition"
+                            title="Browse all loop & emphasis presets in Animation Studio"
+                        >
+                            <Sparkles size={12} />
+                            <span>Studio</span>
+                        </button>
+                    </div>
+
+                    <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Loop &amp; Emphasis</label>
+                        <select
+                            value={loopValue}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                handleChange('animation', val === 'none' ? undefined : val);
+                                handleChange('animationLoop', val !== 'none');
+                            }}
+                            className="w-full border border-[#2a2a35] rounded-lg px-2.5 py-1.5 text-xs focus:border-red-500 focus:outline-none bg-[#1a1a21] text-gray-100"
+                        >
+                            <option value="none">None</option>
+                            {loopGroups.map((group) => (
+                                <optgroup key={group.label} label={group.label}>
+                                    {group.options.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                            ))}
+                        </select>
+                    </div>
+
+                    {(isLoopMain || selectedElement.anim?.loop) ? (
+                        <div>
+                            <label className="text-xs text-gray-400 mb-1.5 block">Repeat</label>
+                            <LoopCountControl
+                                value={selectedElement.animationLoopCount}
+                                onChange={(n) => handleChange('animationLoopCount', n)}
+                                accent="#f59e0b"
+                            />
+                        </div>
+                    ) : (
+                        <p className="text-[10px] text-gray-500">Pick a loop preset to set how many times it repeats.</p>
+                    )}
                 </div>
 
                 {/* Shadow */}

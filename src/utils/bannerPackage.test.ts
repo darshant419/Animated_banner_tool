@@ -444,3 +444,21 @@ describe('buildBannerPackage banner click tag', () => {
         expect(pkg.js).not.toContain('javascript:alert(1)');
     });
 });
+
+describe('buildBannerPackage ISI animations', () => {
+    it('exports the ISI tray entrance animation like any other layer', async () => {
+        const pkg = await buildPackage([
+            bannerElement({
+                id: 'isi-1',
+                type: 'isiScroll',
+                isiText: '<p>Important Safety Information</p>',
+                height: 80,
+                enterAnimation: 'fadeIn',
+                enterDelay: 1,
+            } as Partial<DesignElement>),
+        ]);
+        expect(pkg.html).toContain('class="isi-main"');
+        expect(pkg.js).toMatch(/el\.style\.animation = "\d+ms linear [^"]+"/);
+        expect(pkg.css).toContain('@keyframes');
+    });
+});

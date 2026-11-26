@@ -16,6 +16,8 @@ import { getPiStripStyle } from '../../utils/bannerExport';
 import { buildBannerPackage, zipBannerPackage } from '../../utils/bannerPackage';
 import { buildClickTagPlanForElements, linkKey } from '../../utils/bannerExport';
 import { sanitizeRichText } from '../../utils/richText';
+import { getTextAnimation } from '../../utils/textAnimations';
+import { TextAnimationLayer, type TextAnimationSeeker } from './TextAnimationLayer';
 
 const URLImage = React.forwardRef<Konva.Image, any>(function URLImage({ image, ...props }, ref) {
   const [img] = useImage(image.src);
@@ -114,7 +116,7 @@ const ElementShape = memo(function ElementShape({
           {...commonProps}
           height={el.height || 60}
           text={el.text}
-          fill={el.richText || (editingTextId === el.id && !isPlaying) ? 'rgba(0, 0, 0, 0)' : el.fill}
+          fill={el.richText || getTextAnimation(el.textAnimation) || (editingTextId === el.id && !isPlaying) ? 'rgba(0, 0, 0, 0)' : el.fill}
           fontSize={el.fontSize}
           fontFamily={el.fontFamily}
           fontStyle={konvaFontStyle}
@@ -162,6 +164,7 @@ const ElementShape = memo(function ElementShape({
           onClick={() => onSelect(el.id)}
           onDblClick={() => onEditISI(el.id)}
           onDragEnd={onDragEnd}
+          onTransformEnd={onTransformEnd}
         />
       );
     case 'piStrip': {
@@ -284,13 +287,106 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     overlay.style.transform = `rotate(${node.rotation()}deg) scale(${node.scaleX()}, ${node.scaleY()})`;
   }, []);
 
+  // Letter/word text effects (TextAnimationLayer) are seeked from the same
+  // playhead as the Konva master timeline. At t=0 while paused they show their
+  // final frame, matching how every other element shows its base state there.
+  const textSeekers = useRef<Map<string, TextAnimationSeeker>>(new Map());
+  const playStateRef = useRef({ t: playheadTime, playing: isPlaying });
+  playStateRef.current = { t: playheadTime, playing: isPlaying };
+  // Both the 60fps master seeker and the ~30fps store effect report the
+  // playhead; skipping repeats keeps a late store update from dragging the
+  // letters back a frame (visible as a jerk while scrubbing / playing).
+  const lastTextSeekRef = useRef<{ t: number; settled: boolean } | null>(null);
+  const seekTextAnimations = useCallback((t: number, playing: boolean) => {
+    const settled = !playing && t === 0;
+    const last = lastTextSeekRef.current;
+    if (last && last.t === t && last.settled === settled) return;
+    lastTextSeekRef.current = { t, settled };
+    textSeekers.current.forEach((seek) => seek(t, settled));
+  }, []);
+  const textBoxRegistrars = useRef<Map<string, (node: HTMLDivElement | null) => void>>(new Map());
+  const getTextBoxRegistrar = useCallback((id: string) => {
+    let fn = textBoxRegistrars.current.get(id);
+    if (!fn) {
+      fn = (node) => {
+        if (node) richTextRefs.current.set(id, node);
+        else richTextRefs.current.delete(id);
+      };
+      textBoxRegistrars.current.set(id, fn);
+    }
+    return fn;
+  }, []);
+  const textSeekerRegistrars = useRef<Map<string, (s: TextAnimationSeeker | null) => void>>(new Map());
+  const getTextSeekerRegistrar = useCallback((id: string) => {
+    let fn = textSeekerRegistrars.current.get(id);
+    if (!fn) {
+      fn = (seeker) => {
+        if (seeker) {
+          textSeekers.current.set(id, seeker);
+          const { t, playing } = playStateRef.current;
+          const last = lastTextSeekRef.current;
+          seeker(last ? last.t : t, last ? last.settled : !playing && t === 0);
+        } else {
+          textSeekers.current.delete(id);
+        }
+      };
+      textSeekerRegistrars.current.set(id, fn);
+    }
+    return fn;
+  }, []);
+
+  // ISI trays are HTML overlays laid out at the element's resting x/y; the
+  // master timeline animates the (hidden) Konva shell. Mirror the shell's
+  // animated state onto the tray each frame. Only `transform`, `transform-origin`
+  // and `filter` are written — React never sets those on the tray, so its own
+  // style updates (position, edit/preview opacity) can't fight this.
+  const isiBoxes = useRef<Map<string, HTMLDivElement>>(new Map());
+  const isiBoxRegistrars = useRef<Map<string, (node: HTMLDivElement | null) => void>>(new Map());
+  const getIsiBoxRegistrar = useCallback((id: string) => {
+    let fn = isiBoxRegistrars.current.get(id);
+    if (!fn) {
+      fn = (node) => {
+        if (node) isiBoxes.current.set(id, node);
+        else isiBoxes.current.delete(id);
+      };
+      isiBoxRegistrars.current.set(id, fn);
+    }
+    return fn;
+  }, []);
+  const elementsRef = useRef(elements);
+  elementsRef.current = elements;
+  const syncIsiOverlays = useCallback(() => {
+    isiBoxes.current.forEach((box, id) => {
+      const node = nodeRefs.current.get(id);
+      const el = elementsRef.current.find((e) => e.id === id);
+      if (!node || !el) return;
+      const ox = node.offsetX();
+      const oy = node.offsetY();
+      // Konva draws local point p at pos + R·S·(p − offset); the tray is laid
+      // out at el.x(+margin), so translate by the node's displacement and use
+      // the node offset as the CSS transform origin.
+      const dx = node.x() - ox - (el.x || 0);
+      const dy = node.y() - oy - (el.y || 0);
+      const r = node.rotation();
+      const sx = node.scaleX();
+      const sy = node.scaleY();
+      const o = node.opacity();
+      const still = dx === 0 && dy === 0 && r === 0 && sx === 1 && sy === 1;
+      box.style.transformOrigin = `${ox}px ${oy}px`;
+      box.style.transform = still ? '' : `translate(${dx}px, ${dy}px) rotate(${r}deg) scale(${sx}, ${sy})`;
+      box.style.filter = o >= 1 ? '' : `opacity(${Math.max(0, o)})`;
+      box.style.visibility = o <= 0.001 ? 'hidden' : '';
+    });
+  }, []);
+
   const syncRichTextOverlays = useCallback(() => {
+    syncIsiOverlays();
     elements.forEach((el) => {
-      if (el.type === 'text' && el.richText && el.visible !== false) {
+      if (el.type === 'text' && (el.richText || getTextAnimation(el.textAnimation)) && el.visible !== false) {
         syncRichTextOverlay(el.id);
       }
     });
-  }, [elements, syncRichTextOverlay]);
+  }, [elements, syncRichTextOverlay, syncIsiOverlays]);
 
   // Clean up node refs on unmount so stale Konva node references don't
   // leak into the next artboard when switching sizes.
@@ -405,6 +501,25 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     const hasKfAtPlayhead = Boolean(el?.anim?.keyframes?.some((k) => Math.abs(k.time - playheadTime) < 0.05));
     const isKf = Boolean(targetKf || (autoKeyframe && (playheadTime >= 0 || hasKfAtPlayhead)));
 
+    // ISI tray: always a real resize (never a scale keyframe). The tray is an
+    // HTML overlay sized from width/height and ignores Konva scale, and a Konva
+    // Group reports width()/height() as 0 — so derive the size from the stored
+    // element dimensions times the transformer's scale.
+    if (el?.type === 'isiScroll') {
+      const newWidth = Math.max(40, Math.round((el.width || 300) * node.scaleX()));
+      const newHeight = Math.max(30, Math.round((el.height || 200) * node.scaleY()));
+      node.scaleX(1);
+      node.scaleY(1);
+      node.rotation(0);
+      updateElement(id, {
+        x: Math.round(node.x()),
+        y: Math.round(node.y()),
+        width: newWidth,
+        height: newHeight,
+      });
+      return;
+    }
+
     if (isKf) {
       recordCanvasKeyframe(
         id,
@@ -448,6 +563,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     // Let the Timeline drive this board's canvas at 60fps without a global store
     // update on every frame (keeps playback smooth and panels from re-rendering).
     registerMasterSeeker(board.id, (t) => {
+      seekTextAnimations(t, true);
       if (masterRef.current) {
         masterRef.current.seek(t, false);
         stageRef.current?.batchDraw();
@@ -455,9 +571,11 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
           trRef.current.forceUpdate();
           trRef.current.getLayer()?.batchDraw();
         }
-        // syncRichTextOverlays() is intentionally NOT called here — it runs
-        // via the playheadTime useEffect below (throttled to ~30fps) instead
-        // of every GSAP frame (60fps), which caused jank during scrubbing.
+        // Playback and scrubbing no longer update the store per frame, so this
+        // is the only per-frame path: keep every HTML overlay (rich text, text
+        // effects, ISI tray) glued to its animated Konva node. It only writes
+        // a few style properties per overlay — no layout reads, no React.
+        syncRichTextOverlays();
       }
     });
     return () => {
@@ -466,9 +584,10 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       masterRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- playheadTime intentionally excluded: it only seeks, and rebuilding each tick is wasteful.
-  }, [elements, totalDuration, board.width, board.height, syncRichTextOverlays, selectedId]);
+  }, [elements, totalDuration, board.width, board.height, syncRichTextOverlays, syncRichTextOverlay, syncIsiOverlays, seekTextAnimations, selectedId]);
 
   useEffect(() => {
+    seekTextAnimations(playheadTime, isPlaying);
     if (masterRef.current) {
       masterRef.current.seek(playheadTime, false);
       stageRef.current?.batchDraw();
@@ -478,21 +597,12 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       }
     }
     syncRichTextOverlays();
-  }, [playheadTime, selectedId, syncRichTextOverlays]);
+  }, [playheadTime, isPlaying, selectedId, syncRichTextOverlays, seekTextAnimations]);
 
+  // Overlays follow the canvas from the master seeker every frame during
+  // playback / scrubbing; here they only need a sync when playback toggles.
   useEffect(() => {
-    if (!isPlaying) {
-      syncRichTextOverlays();
-      return;
-    }
-
-    let frameId = 0;
-    const updateOverlays = () => {
-      syncRichTextOverlays();
-      frameId = requestAnimationFrame(updateOverlays);
-    };
-    updateOverlays();
-    return () => cancelAnimationFrame(frameId);
+    syncRichTextOverlays();
   }, [isPlaying, syncRichTextOverlays]);
 
   // When paused at the very start, show the designer base state so elements stay
@@ -695,7 +805,9 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
           {isActive && selectedId && (
             <Transformer
               ref={trRef}
-              keepRatio={true}
+              keepRatio={selectedElement?.type !== 'isiScroll'}
+              rotateEnabled={selectedElement?.type !== 'isiScroll'}
+              ignoreStroke={selectedElement?.type === 'isiScroll'}
               borderStroke={isEditingKeyframe ? '#f59e0b' : 'rgb(0, 161, 255)'}
               anchorStroke={isEditingKeyframe ? '#f59e0b' : 'rgb(0, 161, 255)'}
               anchorFill="#ffffff"
@@ -709,7 +821,24 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
       </Stage>
 
       {elements.map((el, index) => {
-        if (el.type !== 'text' || !el.richText || el.visible === false) return null;
+        if (el.type !== 'text' || el.visible === false || !getTextAnimation(el.textAnimation)) return null;
+        const { offsetX, offsetY } = getElementTransformOffset(el);
+        return (
+          <TextAnimationLayer
+            key={`text-anim-${el.id}`}
+            el={el}
+            zIndex={index + 1}
+            offsetX={offsetX}
+            offsetY={offsetY}
+            isPlaying={isPlaying}
+            registerBox={getTextBoxRegistrar(el.id)}
+            registerSeeker={getTextSeekerRegistrar(el.id)}
+          />
+        );
+      })}
+
+      {elements.map((el, index) => {
+        if (el.type !== 'text' || !el.richText || el.visible === false || getTextAnimation(el.textAnimation)) return null;
         const { offsetX, offsetY } = getElementTransformOffset(el);
         return (
           <div
@@ -775,7 +904,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
           during playback it becomes interactive (hover pause + scrollbar). */}
       {elements.some((el) => el.type === 'isiScroll' && el.visible !== false) && (
         elements.filter((el) => el.type === 'isiScroll' && el.visible !== false).map((el) => (
-          <ISIOverlay key={el.id} element={el} isActive={true} isAnimating={isPlaying} allElements={elements} />
+          <ISIOverlay key={el.id} element={el} isActive={true} isAnimating={isPlaying} allElements={elements} registerBox={getIsiBoxRegistrar(el.id)} />
         ))
       )}
 
