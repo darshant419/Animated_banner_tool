@@ -16,7 +16,7 @@ import {
 import {
     ArrowUp, ArrowDown, ChevronsUp, ChevronsDown,
     AlignLeft, AlignCenter, AlignRight,
-    Bold, Italic, Underline, Link as LinkIcon, Type, List,  Sparkles, Upload, ExternalLink,
+    Bold, Italic, Underline, Link as LinkIcon, Type, List, Sparkles, Upload, ExternalLink, RotateCcw,
 } from 'lucide-react';
 import { uploadMediaAsset } from '../../services/storageService';
 
@@ -785,6 +785,35 @@ return (
                             />
                         </div>
                     </div>
+
+                    {selectedElement.type === 'image' && selectedElement.src && (
+                        <div className="mt-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const img = new Image();
+                                    img.onload = () => {
+                                        const nw = img.naturalWidth || img.width;
+                                        const nh = img.naturalHeight || img.height;
+                                        if (nw && nh) {
+                                            updateElement(selectedElement.id, {
+                                                width: nw,
+                                                height: nh,
+                                                naturalWidth: nw,
+                                                naturalHeight: nh,
+                                            });
+                                        }
+                                    };
+                                    img.src = selectedElement.src!;
+                                }}
+                                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded bg-white/5 hover:bg-white/10 text-xs font-medium text-gray-300 hover:text-white border border-[#2a2a35] hover:border-gray-500 transition"
+                                title="Reset image dimensions to original natural size"
+                            >
+                                <RotateCcw size={12} />
+                                <span>Reset to Original Size</span>
+                            </button>
+                        </div>
+                    )}
 
                     {/* Rotation Center / Transform Origin */}
                     <div className="mt-3">

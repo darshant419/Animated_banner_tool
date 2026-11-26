@@ -668,6 +668,92 @@ const LEGACY: Record<string, string> = {
 
 export const LEGACY_ANIMATIONS = Object.entries(LEGACY).map(([id, label]) => ({ value: id, label }));
 
+/** Split text into characters and animate each one sequentially. */
+const splitTextChars = (base: ElementBaseState, duration: number, delay: number, el: DesignElement): AnimationKeyframe[] => {
+    const totalChars = (el.text || '').length;
+    if (totalChars === 0) return [];
+    const charDuration = duration / totalChars;
+    const frames: AnimationKeyframe[] = [];
+    for (let i = 0; i < totalChars; i++) {
+        const charTime = delay + i * charDuration;
+        frames.push({
+            id: uid(),
+            time: charTime,
+            easing: 'power1.out',
+            opacity: i === 0 ? 0 : (el.opacity ?? 100),
+        });
+    }
+    // Add final frame to ensure full opacity
+    frames.push({
+        id: uid(),
+        time: delay + duration,
+        easing: 'power1.out',
+        opacity: el.opacity ?? 100,
+    });
+    return frames;
+};
+
+/** Split text into words and animate each one sequentially. */
+const splitTextWords = (base: ElementBaseState, duration: number, delay: number, el: DesignElement): AnimationKeyframe[] => {
+    const words = (el.text || '').split(/\s+/).filter((w) => w.length > 0);
+    if (words.length === 0) return [];
+    const wordDuration = duration / words.length;
+    const frames: AnimationKeyframe[] = [];
+    for (let i = 0; i < words.length; i++) {
+        const wordTime = delay + i * wordDuration;
+        frames.push({
+            id: uid(),
+            time: wordTime,
+            easing: 'power1.out',
+            opacity: i === 0 ? 0 : (el.opacity ?? 100),
+        });
+    }
+    frames.push({
+        id: uid(),
+        time: delay + duration,
+        easing: 'power1.out',
+        opacity: el.opacity ?? 100,
+    });
+    return frames;
+};
+
+/** Animated characters fading in sequentially. */
+register('text-char-fade-up', 'Char Fade Up', 'Text & Typography', (b, d, delay, el) =>
+    splitTextChars(b, d, delay, el), { type: 'in' });
+/** Animated characters fading in from opposite direction sequentially. */
+register('text-char-fade-down', 'Char Fade Down', 'Text & Typography', (b, d, delay, el) =>
+    splitTextChars(b, d, delay, el), { type: 'in' });
+/** Animated words fading in sequentially. */
+register('text-word-fade', 'Word Fade', 'Text & Typography', (b, d, delay, el) =>
+    splitTextWords(b, d, delay, el), { type: 'in' });
+/** Animated characters scaling up one by one. */
+register('text-char-scale', 'Char Scale In', 'Text & Typography', (b, d, delay, el) => {
+    const totalChars = (el.text || '').length;
+    if (totalChars === 0) return [];
+    const charDuration = d / totalChars;
+    const frames: AnimationKeyframe[] = [];
+    for (let i = 0; i < totalChars; i++) {
+        const charTime = delay + i * charDuration;
+        frames.push({
+            id: uid(),
+            time: charTime,
+            easing: 'back.out',
+            scaleX: i === 0 ? 0 : 1,
+            scaleY: i === 0 ? 0 : 1,
+            opacity: i === 0 ? 0 : (el.opacity ?? 100),
+        });
+    }
+    frames.push({
+        id: uid(),
+        time: delay + d,
+        easing: 'back.out',
+        scaleX: 1,
+        scaleY: 1,
+        opacity: el.opacity ?? 100,
+    });
+    return frames;
+}, { type: 'in' });
+
 /** Human-readable label for any animation id (Animista catalog or legacy). */
 export const animationLabel = (id: string): string => {
     if (!id || id === 'none') return 'None';

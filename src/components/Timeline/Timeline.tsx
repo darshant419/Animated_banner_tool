@@ -136,8 +136,11 @@ export const Timeline: React.FC = () => {
   const lastTimeRef = useRef<number>(0);
   const [uiTime, setUiTime] = useState(playheadTime);
   const needleRef = useRef<HTMLDivElement>(null);
+  const rulerNeedleRef = useRef<HTMLDivElement>(null);
+  const timecodeRef = useRef<HTMLSpanElement>(null);
   const playheadRef = useRef(playheadTime);
   const lastStoreSyncRef = useRef(0);
+  const scrubRafRef = useRef<number>(0);
 
   const displayTime = isPlaying ? uiTime : playheadTime;
 
@@ -179,13 +182,13 @@ export const Timeline: React.FC = () => {
         if (next >= totalDuration) {
           if (loop) {
             playheadRef.current = 0;
-            if (needleRef.current) needleRef.current.style.transform = `translateX(0px)`;
+            updateNeedleDOM(0);
             setUiTime(0);
             setPlayheadTime(0);
             seekAllMasters(0);
           } else {
             playheadRef.current = totalDuration;
-            if (needleRef.current) needleRef.current.style.transform = `translateX(${totalDuration * pps}px)`;
+            updateNeedleDOM(totalDuration);
             setUiTime(totalDuration);
             setPlayheadTime(totalDuration);
             seekAllMasters(totalDuration);
@@ -195,7 +198,7 @@ export const Timeline: React.FC = () => {
         } else {
           playheadRef.current = next;
           setUiTime(next);
-          if (needleRef.current) needleRef.current.style.transform = `translateX(${next * pps}px)`;
+          updateNeedleDOM(next);
           seekAllMasters(next);
           if (now - lastStoreSyncRef.current >= 33) {
             lastStoreSyncRef.current = now;
@@ -229,12 +232,20 @@ export const Timeline: React.FC = () => {
 
   const lastScrubSyncRef = useRef<number>(0);
 
+  /** Directly update needle + ruler indicator + timecode via DOM (no React re-render). */
+  const updateNeedleDOM = (t: number) => {
+    const px = `${t * pps}px`;
+    if (needleRef.current) needleRef.current.style.transform = `translateX(${px})`;
+    if (rulerNeedleRef.current) rulerNeedleRef.current.style.left = px;
+    if (timecodeRef.current) timecodeRef.current.textContent = formatTimecode(t);
+  };
+
   const scrubTo = (t: number, syncStore = true) => {
     playheadRef.current = t;
-    setUiTime(t);
-    if (needleRef.current) needleRef.current.style.transform = `translateX(${t * pps}px)`;
+    updateNeedleDOM(t);
     seekAllMasters(t);
     if (syncStore) {
+      setUiTime(t);
       setPlayheadTime(t);
     }
   };
@@ -243,30 +254,50 @@ export const Timeline: React.FC = () => {
     scrubRef.current.active = true;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     lastScrubSyncRef.current = performance.now();
+    setIsPlaying(false);
     scrubTo(timeFromEvent(e.clientX, false), true);
   };
 
   const scrubMove = (e: React.PointerEvent) => {
     if (!scrubRef.current.active) return;
     const t = timeFromEvent(e.clientX, false);
-    const now = performance.now();
-    const shouldSync = now - lastScrubSyncRef.current >= 33;
-    if (shouldSync) {
-      lastScrubSyncRef.current = now;
-      scrubTo(t, true);
-    } else {
-      // Only update the needle position (cheap DOM write) without seeking
-      // the canvas or syncing React state on intermediate pointer moves.
-      playheadRef.current = t;
-      if (needleRef.current) needleRef.current.style.transform = `translateX(${t * pps}px)`;
-    }
+    playheadRef.current = t;
+
+    // Cancel any pending RAF from a previous pointer event within the same
+    // frame so we coalesce to one seek per animation frame (smooth 60fps).
+    if (scrubRafRef.current) cancelAnimationFrame(scrubRafRef.current);
+
+    scrubRafRef.current = requestAnimationFrame(() => {
+      scrubRafRef.current = 0;
+      const curT = playheadRef.current;
+      updateNeedleDOM(curT);
+      seekAllMasters(curT);
+
+      // Sync React store at ~30fps so components outside the canvas stay
+      // reasonably up-to-date without causing a re-render on every frame.
+      const now = performance.now();
+      if (now - lastScrubSyncRef.current >= 33) {
+        lastScrubSyncRef.current = now;
+        setUiTime(curT);
+        setPlayheadTime(curT);
+      }
+    });
   };
 
   const endScrub = () => {
     if (!scrubRef.current.active) return;
     scrubRef.current.active = false;
-    setPlayheadTime(playheadRef.current);
-    seekAllMasters(playheadRef.current);
+    if (scrubRafRef.current) {
+      cancelAnimationFrame(scrubRafRef.current);
+      scrubRafRef.current = 0;
+    }
+    // Final sync: ensure canvas and store are at the exact release position
+    const finalT = playheadRef.current;
+    updateNeedleDOM(finalT);
+    seekAllMasters(finalT);
+    setUiTime(finalT);
+    setPlayheadTime(finalT);
+    setIsPlaying(true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -330,11 +361,15 @@ export const Timeline: React.FC = () => {
 
   const moveDragKf = (e: React.PointerEvent) => {
     if (!dragKfRef.current) return;
+    setIsPlaying(false);
     const time = timeFromEvent(e.clientX);
     updateKeyframe(dragKfRef.current.elementId, dragKfRef.current.keyframeId, { time });
   };
 
-  const endDragKf = () => { dragKfRef.current = null; };
+  const endDragKf = () => {
+    dragKfRef.current = null;
+    setIsPlaying(true);
+  };
 
   const startDragSegment = (
     el: DesignElement,
@@ -569,6 +604,15 @@ export const Timeline: React.FC = () => {
           >
             <span className={`w-2 h-2 rounded-full ${autoKeyframe ? 'bg-amber-400 animate-pulse' : 'bg-gray-500'}`} />
             <span>Auto-Keyframe</span>
+          </button>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('open-animation-studio', { detail: { tab: 'sequence' } }))}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium text-gray-300 hover:text-white hover:bg-white/5 transition"
+            style={{ border: '1px solid #222232' }}
+            title="Open Animation Studio"
+          >
+            <Sparkles size={12} style={{ color: '#f0a050' }} />
+            <span>Studio</span>
           </button>
         </div>
 

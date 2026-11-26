@@ -80,21 +80,91 @@ export const AssetsPanel: React.FC = () => {
 
     const addUploadedAsset = (asset: FirebaseAsset) => {
         const isVideo = asset.type.startsWith('video/');
-        const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
-            type: isVideo ? 'video' : 'image',
-            width: isVideo ? 320 : 200,
-            height: isVideo ? 180 : 150,
-        });
-        addElement({
-            id: nextElementId(),
-            type: isVideo ? 'video' : 'image',
-            x,
-            y,
-            width: isVideo ? 320 : 200,
-            height: isVideo ? 180 : 150,
-            src: asset.downloadUrl,
-            name: asset.name,
-        });
+
+        if (isVideo) {
+            const video = document.createElement('video');
+            video.src = asset.downloadUrl;
+            video.onloadedmetadata = () => {
+                const width = video.videoWidth || 320;
+                const height = video.videoHeight || 180;
+                const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+                    type: 'video',
+                    width,
+                    height,
+                });
+                addElement({
+                    id: nextElementId(),
+                    type: 'video',
+                    x,
+                    y,
+                    width,
+                    height,
+                    naturalWidth: width,
+                    naturalHeight: height,
+                    src: asset.downloadUrl,
+                    name: asset.name,
+                });
+            };
+            video.onerror = () => {
+                const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+                    type: 'video',
+                    width: 320,
+                    height: 180,
+                });
+                addElement({
+                    id: nextElementId(),
+                    type: 'video',
+                    x,
+                    y,
+                    width: 320,
+                    height: 180,
+                    src: asset.downloadUrl,
+                    name: asset.name,
+                });
+            };
+            return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+            const width = img.naturalWidth || img.width || 200;
+            const height = img.naturalHeight || img.height || 150;
+            const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+                type: 'image',
+                width,
+                height,
+            });
+            addElement({
+                id: nextElementId(),
+                type: 'image',
+                x,
+                y,
+                width,
+                height,
+                naturalWidth: width,
+                naturalHeight: height,
+                src: asset.downloadUrl,
+                name: asset.name,
+            });
+        };
+        img.onerror = () => {
+            const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
+                type: 'image',
+                width: 200,
+                height: 150,
+            });
+            addElement({
+                id: nextElementId(),
+                type: 'image',
+                x,
+                y,
+                width: 200,
+                height: 150,
+                src: asset.downloadUrl,
+                name: asset.name,
+            });
+        };
+        img.src = asset.downloadUrl;
     };
 
     const filteredUploads = assets.filter((a) =>
@@ -114,11 +184,10 @@ export const AssetsPanel: React.FC = () => {
                     <div className="flex items-center gap-2">
                         <h2 className="text-sm font-semibold text-gray-100">Assets</h2>
                         <span
-                            className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                isCloud
+                            className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-medium ${isCloud
                                     ? 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
                                     : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                            }`}
+                                }`}
                             title={isCloud ? 'Connected to Firebase Storage & Firestore' : 'Running in Local mode. Add Firebase keys in .env for Cloud storage.'}
                         >
                             {isCloud ? <Cloud size={10} /> : <HardDrive size={10} />}

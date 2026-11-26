@@ -1,7 +1,7 @@
 import React from 'react';
 import {
-  MousePointer2, Type, Image as ImageIcon, Loader2,
-  ScrollText, Layers, Shapes, Layout, FileJson, SeparatorHorizontal,
+    MousePointer2, Type, Image as ImageIcon, Loader2,
+    ScrollText, Layers, Shapes, Layout, FileJson, SeparatorHorizontal,
 } from 'lucide-react';
 import { useDesignStore, type ElementType, type DesignElement } from '../../store/designStore';
 import { EMR_ISI_TEXT } from '../../templates/emrTemplates';
@@ -10,8 +10,8 @@ import { getSafeElementPosition } from '../../utils/canvasPosition';
 import { uploadAndSaveAsset } from '../../services/assetService';
 
 export type ToolType =
-  | 'select' | 'text' | 'upload'
-  | 'isiScroll' | 'piStrip' | 'assets' | 'templates' | 'layers' | 'variations';
+    | 'select' | 'text' | 'upload'
+    | 'isiScroll' | 'piStrip' | 'assets' | 'templates' | 'layers' | 'variations';
 
 interface ToolbarProps {
     activeTool: ToolType;
@@ -114,11 +114,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
 
             const img = new Image();
             img.onload = () => {
-                const calculatedHeight = (300 / (img.width || 300)) * (img.height || 200);
+                const width = img.naturalWidth || img.width || 300;
+                const height = img.naturalHeight || img.height || 200;
                 const { x, y } = getSafeElementPosition(canvasWidth, canvasHeight, {
                     type: 'image',
-                    width: 300,
-                    height: calculatedHeight,
+                    width,
+                    height,
                 });
                 addElement({
                     id: Date.now().toString(),
@@ -126,8 +127,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({ activeTool, onToolChange }) =>
                     name: file.name,
                     x,
                     y,
-                    width: 300,
-                    height: calculatedHeight,
+                    width,
+                    height,
+                    naturalWidth: width,
+                    naturalHeight: height,
                     src: savedAsset.downloadUrl,
                 });
             };

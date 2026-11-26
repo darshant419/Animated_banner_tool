@@ -378,7 +378,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     const el = elements.find((item) => item.id === id);
     const targetKf = selectedKeyframe && selectedKeyframe.elementId === id ? selectedKeyframe.keyframeId : undefined;
     const hasKfAtPlayhead = Boolean(el?.anim?.keyframes?.some((k) => Math.abs(k.time - playheadTime) < 0.05));
-    const isKf = Boolean(targetKf || (autoKeyframe && (playheadTime > 0.04 || hasKfAtPlayhead)));
+    const isKf = Boolean(targetKf || (autoKeyframe && (playheadTime >= 0 || hasKfAtPlayhead)));
 
     if (isKf) {
       recordCanvasKeyframe(
@@ -403,7 +403,7 @@ const BoardStage: React.FC<BoardStageProps> = ({ board, isActive, registerStage 
     const el = elements.find((item) => item.id === id);
     const targetKf = selectedKeyframe && selectedKeyframe.elementId === id ? selectedKeyframe.keyframeId : undefined;
     const hasKfAtPlayhead = Boolean(el?.anim?.keyframes?.some((k) => Math.abs(k.time - playheadTime) < 0.05));
-    const isKf = Boolean(targetKf || (autoKeyframe && (playheadTime > 0.04 || hasKfAtPlayhead)));
+    const isKf = Boolean(targetKf || (autoKeyframe && (playheadTime >= 0 || hasKfAtPlayhead)));
 
     if (isKf) {
       recordCanvasKeyframe(

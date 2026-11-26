@@ -87,6 +87,8 @@ export interface DesignElement {
     y: number;
     width?: number;
     height?: number;
+    naturalWidth?: number;
+    naturalHeight?: number;
     name?: string;
     visible?: boolean;
     locked?: boolean;
@@ -143,6 +145,11 @@ export interface DesignElement {
      *   did not pick an exit preset.
      */
     endBehavior?: 'stay' | 'hide';
+    // Word-by-word text animation (like "Real experiences. Real tips." stagger)
+    textWordAnimation?: boolean;
+    wordAnimationStyle?: 'fade-up' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right';
+    wordAnimationDuration?: number;
+    wordAnimationDelay?: number;
     // Additional timed animation blocks, each playing inside its own timeframe
     animations?: ElementTimedAnimation[];
     // Hover Effects
@@ -547,7 +554,8 @@ export const useDesignStore = create<DesignState>((set) => ({
     elements: [],
     selectedId: null,
     selectedKeyframe: null,
-    autoKeyframe: true,
+    autoKeyframe: false,
+    autoKeyframeAtStart: false,
     playheadTime: 0,
     isPlaying: false,
     previewPaused: false,
@@ -925,7 +933,7 @@ export const useDesignStore = create<DesignState>((set) => ({
             const hasStartFrame = keyframes.some((k) => k.time <= 0.04);
             const newFrames: AnimationKeyframe[] = [];
 
-            if (!hasStartFrame && playheadTime > 0.04) {
+            if (!hasStartFrame && playheadTime >= 0) {
                 newFrames.push({
                     id: `kf-base-${Date.now()}`,
                     time: 0,

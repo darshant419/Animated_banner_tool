@@ -22,6 +22,7 @@ import {
     linkKey,
     type BannerClickTag,
     type ElementLinkAssignment,
+    buildWordAnimationEvent,
 } from './bannerExport';
 
 /**
@@ -100,6 +101,17 @@ const BASE_CSS_LINES: string[] = [
     '.iScrollIndicator { border-radius: 5px; width: 6px !important; height: 13px !important; margin-top: 0px !important; right: 1px !important; position: absolute; background: #f2f2f2; cursor: pointer; display: block !important; }',
     // Transparent anchor over a linked element: the element's box is the click area.
     '.clicktag-area { position: absolute; display: block; cursor: pointer; text-decoration: none; }',
+
+    // ── Word-by-word text animation (like "Real experiences. Real tips." stagger) ──
+    // Each word is wrapped in <span class="word" style="--i:N"> and the
+    // animate-words class triggers a staggered entrance via CSS keyframes.
+    '.word { display: inline-block; opacity: 0; animation-play-state: paused; }',
+    '.animate-words .word { animation-play-state: running; }',
+    '@keyframes word-fade-up { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }',
+    '@keyframes word-slide-up { 0% { opacity: 0; transform: translateY(1000px); } 100% { opacity: 1; transform: translateY(0); } }',
+    '@keyframes word-slide-down { 0% { opacity: 0; transform: translateY(-1000px); } 100% { opacity: 1; transform: translateY(0); } }',
+    '@keyframes word-slide-left { 0% { opacity: 0; transform: translateX(-1000px); } 100% { opacity: 1; transform: translateX(0); } }',
+    '@keyframes word-slide-right { 0% { opacity: 0; transform: translateX(1000px); } 100% { opacity: 1; transform: translateX(0); } }',
 ];
 
 const blobToDataUrl = (blob: Blob): Promise<string> =>
@@ -373,8 +385,35 @@ export async function buildBannerPackage({
             cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 100) + 'px; height: ' + (el.width || 100) + 'px; z-index: ' + z + '; background: ' + (el.fill) + '; border-radius: 50%; ' + (el.stroke ? 'border: ' + (el.strokeWidth || 1) + 'px solid ' + el.stroke + ';' : '') + ' transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
         } else if (el.type === 'text') {
             const textContent = el.richText ? sanitizeRichText(el.richText) : escapeHtml(el.text || '');
-            htmlBodyParts.push('          <div id="' + id + '" class="element">' + textContent + '</div>');
+            const wordAnim = (el as any).textWordAnimation;
+            const wordStyle = (el as any).wordAnimationStyle || 'fade-up';
+            const wordDur = (el as any).wordAnimationDuration || 0.8;
+            const wordDelay = (el as any).wordAnimationDelay || 0;
+
+            let innerHtml = textContent;
+            if (wordAnim && !el.richText) {
+                const words = (el.text || '').split(/\s+/).filter((w: string) => w.length > 0);
+                if (words.length > 0) {
+                    const animName = 'word-' + wordStyle;
+                    const wordSpans = words.map((w: string, i: number) =>
+                        '<span class="word" style="--i:' + i + '; animation-name: ' + animName + '; animation-duration: ' + wordDur + 's; animation-delay: calc(var(--i) * ' + (wordDur / words.length) + 's + ' + wordDelay + 's);">' + escapeHtml(w) + '</span>'
+                    ).join(' ');
+                    innerHtml = wordSpans;
+                }
+            }
+            htmlBodyParts.push('          <div id="' + id + '" class="element">' + innerHtml + '</div>');
             cssLines.push('#' + id + ' { position: absolute; left: ' + left + 'px; top: ' + top + 'px; width: ' + (el.width || 300) + 'px; height: ' + (el.height || 60) + 'px; z-index: ' + z + '; color: ' + (el.fill) + '; font-size: ' + (el.fontSize || 12) + 'px; font-family: ' + (el.fontFamily || 'Arial, sans-serif') + '; font-weight: ' + (el.fontWeight || 'normal') + '; font-style: ' + (el.fontStyle || 'normal') + '; text-decoration: ' + (el.textDecoration || 'none') + '; text-align: ' + (el.textAlign || 'left') + '; white-space: pre-wrap; line-height: ' + (el.lineHeight || 1.2) + '; letter-spacing: ' + (el.letterSpacing || 0) + 'px; overflow: hidden; transform-origin: ' + (el.transformOrigin || '50% 50%') + ' }');
+
+            // Word-by-word text animation: trigger the animate-words class at the
+            // configured delay so each word's staggered CSS animation starts on time.
+            if (wordAnim && !el.richText) {
+                timelineEvents.push(
+                    buildWordAnimationEvent({
+                        id,
+                        startDelayMs: Math.round(wordDelay * 1000),
+                    }),
+                );
+            }
         } else if (el.type === 'image' && el.src) {
             const imgName = 'image-' + el.id + '.png';
             images.push({ name: imgName, dataUrl: el.src.startsWith('data:') ? el.src : undefined, remoteUrl: el.src.startsWith('data:') ? undefined : el.src, kind: 'image' });

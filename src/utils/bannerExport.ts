@@ -928,6 +928,21 @@ export const buildVideoAutoplayEvent = (id: string): string =>
     '      } },';
 
 /**
+ * JS timeline entry that triggers word-by-word text animation on one element.
+ * Adds the `animate-words` class to the container so each <span class="word">
+ * starts its staggered CSS keyframe animation. The per-word animation-delay
+ * (already written inline on each span) creates the stagger between words.
+ */
+export const buildWordAnimationEvent = (opts: {
+    id: string;
+    startDelayMs: number;
+}): string =>
+    '      { time: ' + opts.startDelayMs + ', action: () => {\\n' +
+    '        var el = document.getElementById(' + jsStringLiteral(opts.id) + ');\\n' +
+    '        if (el) el.classList.add(\"animate-words\");\\n' +
+    '      } },';
+
+/**
  * JS timeline entry wiring the ISI tray's scrolling in the exported banner.
  *
  * The tray is ALWAYS manually scrollable, matching the in-app preview:
